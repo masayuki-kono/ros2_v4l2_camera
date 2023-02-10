@@ -84,16 +84,18 @@ publishes images as `sensor_msgs/Image` messages.
     V4L2](https://linuxtv.org/downloads/v4l-dvb-apis/uapi/v4l/videodev.html)
     and by your camera. The node outputs the available formats
     supported by your camera when started.
-    Currently supported: `"YUYV"` or `"GREY"`
+    Currently supported: `"YUYV"`, `"UYVY"`, or `"GREY"`
 
 * `output_encoding` - `string`, default: `"rgb8"`
 
     The encoding to use for the output image. Can be any supported by
-    `cv_bridge` given the input pixel format. Currently these are for
-    `"YUYV"`: `" yuv422_yuy2"` (no conversion), or `"mono8"`, `"rgb8"`,
-    `"bgr8"`, `"rgba8"` and `"bgra8"`, plus their 16 bit variants, and for
-    `"GREY"` these are `"mono8"` (no conversion), `"rgb8"`,
-    `"bgr8"`, `"rgba8"` and `"bgra8"`, plus their 16 bit variants.
+    `cv_bridge` given the input pixel format. Currently these are:
+    * `"YUYV"`: `"yuv422_yuy2"` (no conversion), or `"mono8"`, `"rgb8"`,
+    `"bgr8"`, `"rgba8"` and `"bgra8"`, plus their 16 bit variants
+    * `"UYVY"`: `"yuv422"` (no conversion), or `"mono8"`, `"rgb8"`,
+    `"bgr8"`, `"rgba8"` and `"bgra8"`, plus their 16 bit variants
+    * `"GREY"`: `"mono8"` (no conversion), `"rgb8"`,
+    `"bgr8"`, `"rgba8"` and `"bgra8"`, plus their 16 bit variants
 
 * `image_size` - `integer_array`, default: `[640, 480]`
 
