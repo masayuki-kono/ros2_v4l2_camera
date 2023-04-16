@@ -19,7 +19,6 @@
 
 #include <memory>
 #include <string>
-#include <map>
 #include <vector>
 
 #include <camera_info_manager/camera_info_manager.hpp>
@@ -28,6 +27,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "v4l2_camera/visibility_control.h"
+#include "v4l2_camera/parameters.hpp"
 
 namespace v4l2_camera
 {
@@ -40,6 +40,8 @@ public:
   virtual ~V4L2Camera();
 
 private:
+  Parameters parameters_;
+
   std::shared_ptr<V4l2CameraDevice> camera_;
 
   // Publisher used for intra process comm
@@ -57,11 +59,9 @@ private:
   std::string camera_frame_id_;
   std::string output_encoding_;
 
-  std::map<std::string, int32_t> control_name_to_id_;
-
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_;
 
-  void createParameters();
+  void applyParameters();
   bool handleParameter(rclcpp::Parameter const & param);
 
   bool requestPixelFormat(std::string const & fourcc);

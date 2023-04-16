@@ -106,9 +106,10 @@ bool V4l2CameraDevice::open()
   for (auto const & control : controls_) {
     RCLCPP_INFO(
       rclcpp::get_logger("v4l2_camera"),
-      "  %s (%s) = %s", control.name.c_str(),
+      "  %s (%s) = %s%s", control.name.c_str(),
       std::to_string(static_cast<unsigned>(control.type)).c_str(),
-      std::to_string(getControlValue(control.id)).c_str());
+      std::to_string(getControlValue(control.id)).c_str(),
+      control.inactive ? " [inactive]" : "");
   }
 
   return true;
@@ -237,7 +238,7 @@ Image::UniquePtr V4l2CameraDevice::capture()
   return img;
 }
 
-int32_t V4l2CameraDevice::getControlValue(uint32_t id)
+int32_t V4l2CameraDevice::getControlValue(uint32_t id) const
 {
   auto ctrl = v4l2_control{};
   ctrl.id = id;
@@ -256,16 +257,24 @@ bool V4l2CameraDevice::setControlValue(uint32_t id, int32_t value)
   auto ctrl = v4l2_control{};
   ctrl.id = id;
   ctrl.value = value;
+
+  auto control = std::find_if(
+    controls_.begin(), controls_.end(),
+    [id](Control const & c) {return c.id == id;});
+
   if (-1 == ioctl(fd_, VIDIOC_S_CTRL, &ctrl)) {
-    auto control = std::find_if(
-      controls_.begin(), controls_.end(),
-      [id](Control const & c) {return c.id == id;});
     RCLCPP_ERROR(
       rclcpp::get_logger("v4l2_camera"),
       "Failed setting value for control %s to %s: %s (%s)", control->name.c_str(),
       std::to_string(value).c_str(), strerror(errno), std::to_string(errno).c_str());
     return false;
   }
+
+  RCLCPP_INFO(
+    rclcpp::get_logger(
+      "v4l2_camera"), "Succesfully set value for control %s to %s", control->name.c_str(),
+    std::to_string(value).c_str());
+
   return true;
 }
 
@@ -382,46 +391,68 @@ V4l2CameraDevice::ImageSizesDescription V4l2CameraDevice::listContinuousImageSiz
   return std::make_pair(ImageSizeType::CONTINUOUS, std::move(sizes));
 }
 
+v4l2_camera::Control V4l2CameraDevice::queryControl(uint32_t id, bool silent)
+{
+  auto queryctrl = v4l2_queryctrl{};
+  queryctrl.id = id;
+
+  if (ioctl(fd_, VIDIOC_QUERYCTRL, &queryctrl) != 0) {
+    if (!silent) {
+      RCLCPP_ERROR_STREAM(
+        rclcpp::get_logger("v4l2_camera"),
+        "Failed querying control with ID: " << id << " - " << strerror(
+          errno) << " (" << errno << ")");
+    }
+    return {};
+  }
+
+  auto menuItems = std::map<int, std::string>{};
+  if (queryctrl.type == (unsigned)ControlType::MENU) {
+    auto querymenu = v4l2_querymenu{};
+    querymenu.id = queryctrl.id;
+
+    // Query all enum values
+    for (auto i = queryctrl.minimum; i <= queryctrl.maximum; i++) {
+      querymenu.index = i;
+      if (ioctl(fd_, VIDIOC_QUERYMENU, &querymenu) == 0) {
+        menuItems[i] = (const char *)querymenu.name;
+      }
+    }
+  }
+
+  auto control = Control{};
+  control.id = queryctrl.id;
+  control.name = std::string{reinterpret_cast<char *>(queryctrl.name)};
+  control.type = static_cast<ControlType>(queryctrl.type);
+  control.minimum = queryctrl.minimum;
+  control.maximum = queryctrl.maximum;
+  control.defaultValue = queryctrl.default_value;
+  control.menuItems = std::move(menuItems);
+  control.disabled = (queryctrl.flags & V4L2_CTRL_FLAG_DISABLED) != 0;
+  control.inactive = (queryctrl.flags & V4L2_CTRL_FLAG_INACTIVE) != 0;
+
+  return control;
+}
+
 void V4l2CameraDevice::listControls()
 {
   controls_.clear();
 
-  auto queryctrl = v4l2_queryctrl{};
-  queryctrl.id = V4L2_CID_USER_CLASS | V4L2_CTRL_FLAG_NEXT_CTRL;
+  auto query_id = V4L2_CID_BASE;
 
-  while (ioctl(fd_, VIDIOC_QUERYCTRL, &queryctrl) == 0) {
-    // Ignore disabled controls
-    if (queryctrl.flags & V4L2_CTRL_FLAG_DISABLED) {
+  while (true) {
+    auto control = queryControl(query_id, true);
+    if (control.id == 0) {break;}
+
+    if (control.disabled) {
+      query_id = control.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
       continue;
     }
-
-    auto menuItems = std::map<int, std::string>{};
-    if (queryctrl.type == (unsigned)ControlType::MENU) {
-      auto querymenu = v4l2_querymenu{};
-      querymenu.id = queryctrl.id;
-
-      // Query all enum values
-      for (auto i = queryctrl.minimum; i <= queryctrl.maximum; i++) {
-        querymenu.index = i;
-        if (ioctl(fd_, VIDIOC_QUERYMENU, &querymenu) == 0) {
-          menuItems[i] = (const char *)querymenu.name;
-        }
-      }
-    }
-
-    auto control = Control{};
-    control.id = queryctrl.id;
-    control.name = std::string{reinterpret_cast<char *>(queryctrl.name)};
-    control.type = static_cast<ControlType>(queryctrl.type);
-    control.minimum = queryctrl.minimum;
-    control.maximum = queryctrl.maximum;
-    control.defaultValue = queryctrl.default_value;
-    control.menuItems = std::move(menuItems);
 
     controls_.push_back(control);
 
     // Get ready to query next item
-    queryctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+    query_id = control.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
   }
 }
 
