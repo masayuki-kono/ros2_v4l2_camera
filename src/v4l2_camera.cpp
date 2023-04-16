@@ -14,16 +14,18 @@
 
 #include "v4l2_camera/v4l2_camera.hpp"
 
+#include <cv_bridge/cv_bridge.h>
+
 #include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cv_bridge/cv_bridge.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 
 #include "v4l2_camera/fourcc.hpp"
+#include "v4l2_camera/parameters.hpp"
 
 using namespace std::chrono_literals;
 
@@ -32,6 +34,8 @@ namespace v4l2_camera
 
 V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 : rclcpp::Node{"v4l2_camera", options},
+  parameters_{get_node_parameters_interface(), get_node_topics_interface(),
+    get_node_logging_interface()},
   canceled_{false}
 {
   // Prepare publisher
@@ -44,12 +48,11 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
     camera_transport_pub_ = image_transport::create_camera_publisher(this, "image_raw");
   }
 
+  parameters_.declareStaticParameters();
+  parameters_.declareOutputParameters();
+
   // Prepare camera
-  auto device_descriptor = rcl_interfaces::msg::ParameterDescriptor{};
-  device_descriptor.description = "Path to video device";
-  device_descriptor.read_only = true;
-  auto device = declare_parameter<std::string>("video_device", "/dev/video0", device_descriptor);
-  camera_ = std::make_shared<V4l2CameraDevice>(device);
+  camera_ = std::make_shared<V4l2CameraDevice>(parameters_.getVideoDevice());
 
   if (!camera_->open()) {
     return;
@@ -57,8 +60,15 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 
   cinfo_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_->getCameraName());
 
+  parameters_.declareDeviceParameters(*camera_);
+
   // Read parameters and set up callback
-  createParameters();
+  applyParameters();
+
+  parameters_.setParameterChangedCallback(
+    [this](rclcpp::Parameter parameter) {
+      handleParameter(parameter);
+    });
 
   // Start the camera
   if (!camera_->start()) {
@@ -118,23 +128,12 @@ V4L2Camera::~V4L2Camera()
   }
 }
 
-void V4L2Camera::createParameters()
+void V4L2Camera::applyParameters()
 {
-  // Node parameters
-  auto output_encoding_description = rcl_interfaces::msg::ParameterDescriptor{};
-  output_encoding_description.description = "ROS image encoding to use for the output image."
-    "Can be any supported by cv_bridge given the input pixel format";
-  output_encoding_ = declare_parameter(
-    "output_encoding", std::string{"rgb8"},
-    output_encoding_description);
+  output_encoding_ = parameters_.getOutputEncoding();
 
   // Camera info parameters
-  auto camera_info_url_description = rcl_interfaces::msg::ParameterDescriptor();
-  camera_info_url_description.description = "The location for getting camera calibration data";
-  camera_info_url_description.read_only = true;
-  auto camera_info_url = declare_parameter<std::string>(
-    "camera_info_url", "",
-    camera_info_url_description);
+  auto camera_info_url = parameters_.getCameraInfoUrl();
   if (camera_info_url != "") {
     if (cinfo_->validateURL(camera_info_url)) {
       cinfo_->loadCameraInfo(camera_info_url);
@@ -143,159 +142,72 @@ void V4L2Camera::createParameters()
     }
   }
 
-  auto camera_frame_id_description = rcl_interfaces::msg::ParameterDescriptor{};
-  camera_frame_id_description.description = "Frame id inserted in published image";
-  camera_frame_id_description.read_only = true;
-  camera_frame_id_ = declare_parameter<std::string>(
-    "camera_frame_id", "camera",
-    camera_frame_id_description);
+  camera_frame_id_ = parameters_.getCameraFrameId();
 
   // Format parameters
   // Pixel format
-  auto const & image_formats = camera_->getImageFormats();
-  auto pixel_format_descriptor = rcl_interfaces::msg::ParameterDescriptor{};
-  pixel_format_descriptor.name = "pixel_format";
-  pixel_format_descriptor.description = "Pixel format (FourCC)";
-  auto pixel_format_constraints = std::ostringstream{};
-  for (auto const & format : image_formats) {
-    pixel_format_constraints <<
-      "\"" << FourCC::toString(format.pixelFormat) << "\"" <<
-      " (" << format.description << "), ";
-  }
-  auto str = pixel_format_constraints.str();
-  str = str.substr(0, str.size() - 2);
-  pixel_format_descriptor.additional_constraints = str;
-  auto pixel_format =
-    declare_parameter<std::string>("pixel_format", "YUYV", pixel_format_descriptor);
+  auto pixel_format = parameters_.getPixelFormat();
   requestPixelFormat(pixel_format);
 
   // Image size
-  using ImageSize = std::vector<int64_t>;
-  auto image_size = ImageSize{};
-  auto image_size_descriptor = rcl_interfaces::msg::ParameterDescriptor{};
-  image_size_descriptor.name = "image_size";
-  image_size_descriptor.description = "Image width & height";
-
-  // List available image sizes per format
-  auto const & image_sizes = camera_->getImageSizes();
-  auto image_sizes_constraints = std::ostringstream{};
-  image_sizes_constraints << "Available image sizes:";
-
-  for (auto const & format : image_formats) {
-    image_sizes_constraints << "\n" << FourCC::toString(format.pixelFormat) << " (" <<
-      format.description << ")";
-
-    auto iter = image_sizes.find(format.pixelFormat);
-    if (iter == image_sizes.end()) {
-      RCLCPP_ERROR_STREAM(
-        get_logger(),
-        "No sizes available to create parameter description for format: " << format.description);
-      continue;
-    }
-
-    auto size_type = iter->second.first;
-    auto & sizes = iter->second.second;
-    switch (size_type) {
-      case V4l2CameraDevice::ImageSizeType::DISCRETE:
-        for (auto const & image_size : sizes) {
-          image_sizes_constraints << "\n\t" << image_size.first << "x" << image_size.second;
-        }
-        break;
-      case V4l2CameraDevice::ImageSizeType::STEPWISE:
-        image_sizes_constraints << "\n\tmin:\t" << sizes[0].first << "x" << sizes[0].second;
-        image_sizes_constraints << "\n\tmax:\t" << sizes[1].first << "x" << sizes[1].second;
-        image_sizes_constraints << "\n\tstep:\t" << sizes[2].first << "x" << sizes[2].second;
-        break;
-      case V4l2CameraDevice::ImageSizeType::CONTINUOUS:
-        image_sizes_constraints << "\n\tmin:\t" << sizes[0].first << "x" << sizes[0].second;
-        image_sizes_constraints << "\n\tmax:\t" << sizes[1].first << "x" << sizes[1].second;
-        break;
-    }
-  }
-
-  image_size_descriptor.additional_constraints = image_sizes_constraints.str();
-  image_size = declare_parameter<ImageSize>("image_size", {640, 480}, image_size_descriptor);
+  auto image_size = parameters_.getImageSize();
   requestImageSize(image_size);
 
   // Control parameters
-  auto toParamName =
-    [](std::string name) {
-      std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-      name.erase(std::remove(name.begin(), name.end(), ','), name.end());
-      name.erase(std::remove(name.begin(), name.end(), '('), name.end());
-      name.erase(std::remove(name.begin(), name.end(), ')'), name.end());
-      std::replace(name.begin(), name.end(), ' ', '_');
-      return name;
-    };
+  auto control_parameters = parameters_.getControlParameters();
+  for (auto const & param : control_parameters) {
+    auto control_id = parameters_.getControlId(param);
+    auto control = camera_->queryControl(control_id);
+    if (control.inactive) {
+      RCLCPP_DEBUG(get_logger(), "Skipping inactive control: %s", control.name.c_str());
+      continue;
+    }
 
-  for (auto const & c : camera_->getControls()) {
-    auto name = toParamName(c.name);
-    auto descriptor = rcl_interfaces::msg::ParameterDescriptor{};
-    descriptor.name = name;
-    descriptor.description = c.name;
-    switch (c.type) {
-      case ControlType::INT:
-        {
-          auto current_value = camera_->getControlValue(c.id);
-          auto range = rcl_interfaces::msg::IntegerRange{};
-          range.from_value = c.minimum;
-          range.to_value = c.maximum;
-          descriptor.integer_range.push_back(range);
-          auto value = declare_parameter<int64_t>(name, current_value, descriptor);
-          camera_->setControlValue(c.id, value);
-          break;
-        }
-      case ControlType::BOOL:
-        {
-          auto value =
-            declare_parameter<bool>(name, camera_->getControlValue(c.id) != 0, descriptor);
-          camera_->setControlValue(c.id, value);
-          break;
-        }
-      case ControlType::MENU:
-        {
-          auto sstr = std::ostringstream{};
-          for (auto const & o : c.menuItems) {
-            sstr << o.first << " - " << o.second << ", ";
-          }
-          auto str = sstr.str();
-          descriptor.additional_constraints = str.substr(0, str.size() - 2);
-          auto value = declare_parameter<int64_t>(name, camera_->getControlValue(c.id), descriptor);
-          camera_->setControlValue(c.id, value);
-          break;
-        }
+    switch (param.get_type()) {
+      case rclcpp::ParameterType::PARAMETER_BOOL:
+        if (static_cast<bool>(camera_->getControlValue(control.id)) == param.as_bool()) {continue;}
+        camera_->setControlValue(control_id, param.as_bool());
+        break;
+      case rclcpp::ParameterType::PARAMETER_INTEGER:
+        if (camera_->getControlValue(control.id) == param.as_int()) {continue;}
+        camera_->setControlValue(control_id, param.as_int());
+        break;
       default:
         RCLCPP_WARN(
           get_logger(),
-          "Control type not currently supported: %s, for control: %s",
-          std::to_string(unsigned(c.type)).c_str(),
-          c.name.c_str());
-        continue;
+          "Control parameter type not currently supported: %d, for parameter: %s",
+          unsigned(param.get_type()), param.get_name().c_str());
     }
-    control_name_to_id_[name] = c.id;
   }
-
-  // Register callback for parameter value setting
-  on_set_parameters_callback_ = add_on_set_parameters_callback(
-    [this](std::vector<rclcpp::Parameter> parameters) -> rcl_interfaces::msg::SetParametersResult {
-      auto result = rcl_interfaces::msg::SetParametersResult();
-      result.successful = true;
-      for (auto const & p : parameters) {
-        result.successful &= handleParameter(p);
-      }
-      return result;
-    });
 }
 
 bool V4L2Camera::handleParameter(rclcpp::Parameter const & param)
 {
-  auto name = std::string{param.get_name()};
-  if (control_name_to_id_.find(name) != control_name_to_id_.end()) {
+  auto name = param.get_name();
+  if (parameters_.isControlParameter(param)) {
+    auto control_id = parameters_.getControlId(param);
+    auto control = camera_->queryControl(control_id);
+    if (control.inactive) {
+      RCLCPP_WARN(get_logger(), "Cannot set inactive control: %s", control.name.c_str());
+      return false;
+    }
     switch (param.get_type()) {
       case rclcpp::ParameterType::PARAMETER_BOOL:
-        return camera_->setControlValue(control_name_to_id_[name], param.as_bool());
+        if (static_cast<bool>(camera_->getControlValue(control.id)) == param.as_bool()) {
+          RCLCPP_DEBUG(
+            get_logger(), "Parameter %s already set at requested value: %d",
+            control.name.c_str(), param.as_bool());
+          return true;
+        }
+        return camera_->setControlValue(control_id, param.as_bool());
       case rclcpp::ParameterType::PARAMETER_INTEGER:
-        return camera_->setControlValue(control_name_to_id_[name], param.as_int());
+        if (camera_->getControlValue(control.id) == param.as_int()) {
+          RCLCPP_DEBUG(
+            get_logger(), "Parameter %s already set at requested value: %ld",
+            control.name.c_str(), param.as_int());
+          return true;
+        }
+        return camera_->setControlValue(control_id, param.as_int());
       default:
         RCLCPP_WARN(
           get_logger(),
