@@ -40,8 +40,16 @@ public:
   bool start();
   bool stop();
 
+  // Query properties and current state of a control
+  Control queryControl(uint32_t id, bool silent = false);
+
+  // Get all pre-queried controls
   auto const & getControls() const {return controls_;}
-  int32_t getControlValue(uint32_t id);
+
+  // Get current control value
+  int32_t getControlValue(uint32_t id) const;
+
+  // Attempt to set current control value
   bool setControlValue(uint32_t id, int32_t value);
 
   // Types used to describe available image sizes

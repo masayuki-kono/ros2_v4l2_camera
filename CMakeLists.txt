@@ -9,10 +9,11 @@ endif()
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-cpp)
 endif()
 
 # find dependencies
@@ -25,6 +26,7 @@ find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 
 add_library(v4l2_camera
+  src/parameters.cpp
   src/v4l2_camera.cpp
   src/v4l2_camera_device.cpp)
 rclcpp_components_register_nodes(v4l2_camera "v4l2_camera::V4L2Camera")
@@ -39,8 +41,6 @@ ament_target_dependencies(v4l2_camera
   "camera_info_manager"
   "cv_bridge"
   "image_transport")
-
-target_compile_options(v4l2_camera PRIVATE -Werror)
 
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
