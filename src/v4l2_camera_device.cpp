@@ -204,6 +204,14 @@ Image::UniquePtr V4l2CameraDevice::capture()
     return nullptr;
   }
 
+  // Create image object
+  auto img = std::make_unique<Image>();
+
+  // Copy over buffer data
+  auto const & buffer = buffers_[buf.index];
+  img->data.resize(cur_data_format_.imageByteSize);
+  std::copy(buffer.start, buffer.start + img->data.size(), img->data.begin());
+
   // Requeue buffer to be reused for new captures
   if (-1 == ioctl(fd_, VIDIOC_QBUF, &buf)) {
     RCLCPP_ERROR(
@@ -213,8 +221,7 @@ Image::UniquePtr V4l2CameraDevice::capture()
     return nullptr;
   }
 
-  // Create image object
-  auto img = std::make_unique<Image>();
+  // Fill in remaining image information
   img->width = cur_data_format_.width;
   img->height = cur_data_format_.height;
   img->step = cur_data_format_.bytesPerLine;
@@ -231,10 +238,7 @@ Image::UniquePtr V4l2CameraDevice::capture()
       FourCC::toString(cur_data_format_.pixelFormat).c_str(),
       cur_data_format_.pixelFormat);
   }
-  img->data.resize(cur_data_format_.imageByteSize);
 
-  auto const & buffer = buffers_[buf.index];
-  std::copy(buffer.start, buffer.start + img->data.size(), img->data.begin());
   return img;
 }
 
