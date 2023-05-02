@@ -57,6 +57,12 @@ struct Control
 
   /// Menu item names by index. Empty if this is not a menu control
   std::map<int, std::string> menuItems;
+
+  /// Whether the control is disabled, meaning it should be ignored
+  bool disabled;
+
+  /// Whether the control is set to inactive, e.g. when it is automatically controlled
+  bool inactive;
 };
 
 }  // namespace v4l2_camera

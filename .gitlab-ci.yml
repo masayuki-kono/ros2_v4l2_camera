@@ -6,7 +6,7 @@ variables:
 build:
   stage: build
   script:
-    - apt update
+    - apt update && apt upgrade -y
     - cd ${CI_BUILDS_DIR}
     - rosdep update && rosdep install --from-paths src -r -y
     # Build
