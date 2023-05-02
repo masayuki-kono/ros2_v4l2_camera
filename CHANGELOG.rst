@@ -2,8 +2,8 @@
 Changelog for package v4l2_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.6.2 (2023-05-02)
+------------------
 * Don't re-queue buffer before getting the data
 * Break out parameter handler into separate class, reducing unnecessary startup warnings.
 * Add UYVY pixel format
