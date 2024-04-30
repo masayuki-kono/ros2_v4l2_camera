@@ -2,8 +2,8 @@
 Changelog for package v4l2_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.7.1 (2024-04-30)
+------------------
 * Fix deprecated cv_bridge header
 * Avoid unnecessary memory operations by using std::vector::assign()
 * Add camera frame id to camera info message
