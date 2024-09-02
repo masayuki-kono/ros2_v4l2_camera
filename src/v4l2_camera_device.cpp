@@ -33,8 +33,11 @@
 using v4l2_camera::V4l2CameraDevice;
 using sensor_msgs::msg::Image;
 
-V4l2CameraDevice::V4l2CameraDevice(std::string device)
-: device_{std::move(device)}
+V4l2CameraDevice::V4l2CameraDevice(
+  std::string device,
+  rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr logging_interface)
+: device_{std::move(device)},
+  logging_interface_{std::move(logging_interface)}
 {
 }
 
@@ -45,7 +48,7 @@ bool V4l2CameraDevice::open()
   if (fd_ < 0) {
     auto msg = std::ostringstream{};
     msg << "Failed opening device " << device_ << ": " << strerror(errno) << " (" << errno << ")";
-    RCLCPP_ERROR(rclcpp::get_logger("v4l2_camera"), "%s", msg.str().c_str());
+    RCLCPP_ERROR(logging_interface_->get_logger(), "%s", msg.str().c_str());
     return false;
   }
 
@@ -56,26 +59,26 @@ bool V4l2CameraDevice::open()
   auto canStream = capabilities_.capabilities & V4L2_CAP_STREAMING;
 
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "Driver: %s", capabilities_.driver);
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "Version: %s", std::to_string(capabilities_.version).c_str());
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "Device: %s", capabilities_.card);
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "Location: %s", capabilities_.bus_info);
 
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "Capabilities:");
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "  Read/write: %s", (canRead ? "YES" : "NO"));
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "  Streaming: %s", (canStream ? "YES" : "NO"));
 
   // Get current data (pixel) format
@@ -85,7 +88,7 @@ bool V4l2CameraDevice::open()
   cur_data_format_ = PixelFormat{formatReq.fmt.pix};
 
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "Current pixel format: %s @ %sx%s", FourCC::toString(cur_data_format_.pixelFormat).c_str(),
     std::to_string(cur_data_format_.width).c_str(),
     std::to_string(cur_data_format_.height).c_str());
@@ -95,17 +98,17 @@ bool V4l2CameraDevice::open()
   listImageSizes();
   listControls();
 
-  RCLCPP_INFO(rclcpp::get_logger("v4l2_camera"), "Available pixel formats: ");
+  RCLCPP_INFO(logging_interface_->get_logger(), "Available pixel formats: ");
   for (auto const & format : image_formats_) {
     RCLCPP_INFO(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "  %s - %s", FourCC::toString(format.pixelFormat).c_str(), format.description.c_str());
   }
 
-  RCLCPP_INFO(rclcpp::get_logger("v4l2_camera"), "Available controls: ");
+  RCLCPP_INFO(logging_interface_->get_logger(), "Available controls: ");
   for (auto const & control : controls_) {
     RCLCPP_INFO(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "  %s (%s) = %s%s", control.name.c_str(),
       std::to_string(static_cast<unsigned>(control.type)).c_str(),
       std::to_string(getControlValue(control.id)).c_str(),
@@ -117,7 +120,7 @@ bool V4l2CameraDevice::open()
 
 bool V4l2CameraDevice::start()
 {
-  RCLCPP_INFO(rclcpp::get_logger("v4l2_camera"), "Starting camera");
+  RCLCPP_INFO(logging_interface_->get_logger(), "Starting camera");
   if (!initMemoryMapping()) {
     return false;
   }
@@ -131,7 +134,7 @@ bool V4l2CameraDevice::start()
 
     if (-1 == ioctl(fd_, VIDIOC_QBUF, &buf)) {
       RCLCPP_ERROR(
-        rclcpp::get_logger("v4l2_camera"),
+        logging_interface_->get_logger(),
         "Buffer failure on capture start: %s (%s)", strerror(errno),
         std::to_string(errno).c_str());
       return false;
@@ -142,7 +145,7 @@ bool V4l2CameraDevice::start()
   unsigned type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (-1 == ioctl(fd_, VIDIOC_STREAMON, &type)) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Failed stream start: %s (%s)", strerror(errno),
       std::to_string(errno).c_str());
     return false;
@@ -152,12 +155,12 @@ bool V4l2CameraDevice::start()
 
 bool V4l2CameraDevice::stop()
 {
-  RCLCPP_INFO(rclcpp::get_logger("v4l2_camera"), "Stopping camera");
+  RCLCPP_INFO(logging_interface_->get_logger(), "Stopping camera");
   // Stop stream
   unsigned type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (-1 == ioctl(fd_, VIDIOC_STREAMOFF, &type)) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Failed stream stop");
     return false;
   }
@@ -198,7 +201,7 @@ Image::UniquePtr V4l2CameraDevice::capture()
   // Dequeue buffer with new image
   if (-1 == ioctl(fd_, VIDIOC_DQBUF, &buf)) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Error dequeueing buffer: %s (%s)", strerror(errno),
       std::to_string(errno).c_str());
     return nullptr;
@@ -215,7 +218,7 @@ Image::UniquePtr V4l2CameraDevice::capture()
   // Requeue buffer to be reused for new captures
   if (-1 == ioctl(fd_, VIDIOC_QBUF, &buf)) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Error re-queueing buffer: %s (%s)", strerror(errno),
       std::to_string(errno).c_str());
     return nullptr;
@@ -233,7 +236,7 @@ Image::UniquePtr V4l2CameraDevice::capture()
     img->encoding = sensor_msgs::image_encodings::MONO8;
   } else {
     RCLCPP_WARN(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Current pixel format is not supported yet: %s %d",
       FourCC::toString(cur_data_format_.pixelFormat).c_str(),
       cur_data_format_.pixelFormat);
@@ -248,7 +251,7 @@ int32_t V4l2CameraDevice::getControlValue(uint32_t id) const
   ctrl.id = id;
   if (-1 == ioctl(fd_, VIDIOC_G_CTRL, &ctrl)) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Failed getting value for control %s: %s (%s); returning 0!", std::to_string(id).c_str(),
       strerror(errno), std::to_string(errno).c_str());
     return 0;
@@ -268,7 +271,7 @@ bool V4l2CameraDevice::setControlValue(uint32_t id, int32_t value)
 
   if (-1 == ioctl(fd_, VIDIOC_S_CTRL, &ctrl)) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Failed setting value for control %s to %s: %s (%s)", control->name.c_str(),
       std::to_string(value).c_str(), strerror(errno), std::to_string(errno).c_str());
     return false;
@@ -291,7 +294,7 @@ bool V4l2CameraDevice::requestDataFormat(const PixelFormat & format)
   formatReq.fmt.pix.height = format.height;
 
   RCLCPP_INFO(
-    rclcpp::get_logger("v4l2_camera"),
+    logging_interface_->get_logger(),
     "Requesting format: %sx%s %s",
     std::to_string(format.width).c_str(),
     std::to_string(format.height).c_str(),
@@ -300,13 +303,13 @@ bool V4l2CameraDevice::requestDataFormat(const PixelFormat & format)
   // Perform request
   if (-1 == ioctl(fd_, VIDIOC_S_FMT, &formatReq)) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
+      logging_interface_->get_logger(),
       "Failed requesting pixel format: %s (%s)", strerror(errno),
       std::to_string(errno).c_str());
     return false;
   }
 
-  RCLCPP_INFO(rclcpp::get_logger("v4l2_camera"), "Success");
+  RCLCPP_INFO(logging_interface_->get_logger(), "Success");
   cur_data_format_ = PixelFormat{formatReq.fmt.pix};
   return true;
 }
@@ -335,7 +338,7 @@ void V4l2CameraDevice::listImageSizes()
 
     if (-1 == ioctl(fd_, VIDIOC_ENUM_FRAMESIZES, &frmSizeEnum)) {
       RCLCPP_ERROR_STREAM(
-        rclcpp::get_logger("v4l2_camera"),
+        logging_interface_->get_logger(),
         "Failed listing frame size " << strerror(errno) << " (" << errno << ")");
       continue;
     }
@@ -352,7 +355,7 @@ void V4l2CameraDevice::listImageSizes()
         break;
       default:
         RCLCPP_WARN_STREAM(
-          rclcpp::get_logger("v4l2_camera"),
+          logging_interface_->get_logger(),
           "Frame size type not supported: " << frmSizeEnum.type);
         continue;
     }
@@ -403,7 +406,7 @@ v4l2_camera::Control V4l2CameraDevice::queryControl(uint32_t id, bool silent)
   if (ioctl(fd_, VIDIOC_QUERYCTRL, &queryctrl) != 0) {
     if (!silent) {
       RCLCPP_ERROR_STREAM(
-        rclcpp::get_logger("v4l2_camera"),
+        logging_interface_->get_logger(),
         "Failed querying control with ID: " << id << " - " << strerror(
           errno) << " (" << errno << ")");
     }
@@ -472,7 +475,7 @@ bool V4l2CameraDevice::initMemoryMapping()
 
   // Didn't get more than 1 buffer
   if (req.count < 2) {
-    RCLCPP_ERROR(rclcpp::get_logger("v4l2_camera"), "Insufficient buffer memory");
+    RCLCPP_ERROR(logging_interface_->get_logger(), "Insufficient buffer memory");
     return false;
   }
 
@@ -499,7 +502,7 @@ bool V4l2CameraDevice::initMemoryMapping()
         fd_, buf.m.offset));
 
     if (MAP_FAILED == buffers_[i].start) {
-      RCLCPP_ERROR(rclcpp::get_logger("v4l2_camera"), "Failed mapping device memory");
+      RCLCPP_ERROR(logging_interface_->get_logger(), "Failed mapping device memory");
       return false;
     }
   }
