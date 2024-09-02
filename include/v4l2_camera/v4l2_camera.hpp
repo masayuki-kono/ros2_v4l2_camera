@@ -28,6 +28,7 @@
 
 #include "v4l2_camera/visibility_control.h"
 #include "v4l2_camera/parameters.hpp"
+#include "sun_msgs/msg/operating_status.hpp"
 
 namespace v4l2_camera
 {
@@ -51,13 +52,19 @@ private:
   // Publisher used for inter process comm
   image_transport::CameraPublisher camera_transport_pub_;
 
-  std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
+  /// Subscription of OperatingStatus
+  rclcpp::Subscription<sun_msgs::msg::OperatingStatus>::SharedPtr op_status_sub_;
 
-  std::thread capture_thread_;
-  std::atomic<bool> canceled_;
+  /// Streaming cyclic timer
+  rclcpp::TimerBase::SharedPtr streaming_timer_;
+
+  std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
 
   std::string camera_frame_id_;
   std::string output_encoding_;
+
+  /// Streaming enabled 
+  bool streaming_enabled_;
 
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_;
 
@@ -72,6 +79,8 @@ private:
   bool checkCameraInfo(
     sensor_msgs::msg::Image const & img,
     sensor_msgs::msg::CameraInfo const & ci);
+
+  void capture_and_publish();
 };
 
 }  // namespace v4l2_camera
