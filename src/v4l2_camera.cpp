@@ -36,23 +36,27 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 : rclcpp::Node{"v4l2_camera", options},
   parameters_{get_node_parameters_interface(), get_node_topics_interface(),
     get_node_logging_interface()},
-  canceled_{false}
+  streaming_enabled_{false}
 {
   // Prepare publisher
   // This should happen before registering on_set_parameters_callback,
   // else transport plugins will fail to declare their parameters
+  auto image_topic_name = std::string(get_name()) + "/image_raw";
+  auto info_topic_name = std::string(get_name()) + "/camera_info";
   if (options.use_intra_process_comms()) {
-    image_pub_ = create_publisher<sensor_msgs::msg::Image>("image_raw", 10);
-    info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", 10);
+    image_pub_ = create_publisher<sensor_msgs::msg::Image>(image_topic_name, 10);
+    info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>(info_topic_name, 10);
   } else {
-    camera_transport_pub_ = image_transport::create_camera_publisher(this, "image_raw");
+    camera_transport_pub_ = image_transport::create_camera_publisher(this, image_topic_name);
   }
 
   parameters_.declareStaticParameters();
   parameters_.declareOutputParameters();
 
   // Prepare camera
-  camera_ = std::make_shared<V4l2CameraDevice>(parameters_.getVideoDevice());
+  camera_ = std::make_shared<V4l2CameraDevice>(
+    parameters_.getVideoDevice(),
+    get_node_logging_interface());
 
   if (!camera_->open()) {
     return;
@@ -70,63 +74,36 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
       handleParameter(parameter);
     });
 
-  // Start the camera
-  if (!camera_->start()) {
-    return;
-  }
-
-  // Start capture thread
-  capture_thread_ = std::thread{
-    [this]() -> void {
-      while (rclcpp::ok() && !canceled_.load()) {
-        RCLCPP_DEBUG(get_logger(), "Capture...");
-        auto img = camera_->capture();
-        if (img == nullptr) {
-          // Failed capturing image, assume it is temporarily and continue a bit later
-          std::this_thread::sleep_for(std::chrono::milliseconds(10));
-          continue;
-        }
-
-        auto stamp = now();
-        if (img->encoding != output_encoding_) {
-          RCLCPP_WARN_ONCE(
-            get_logger(),
-            "Image encoding not the same as requested output, performing possibly slow conversion: "
-            "%s => %s",
-            img->encoding.c_str(), output_encoding_.c_str());
-          img = convert(*img);
-        }
-        img->header.stamp = stamp;
-        img->header.frame_id = camera_frame_id_;
-
-        auto ci = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_->getCameraInfo());
-        if (!checkCameraInfo(*img, *ci)) {
-          *ci = sensor_msgs::msg::CameraInfo{};
-          ci->height = img->height;
-          ci->width = img->width;
-        }
-
-        ci->header.stamp = stamp;
-
-        if (get_node_options().use_intra_process_comms()) {
-          RCLCPP_DEBUG_STREAM(get_logger(), "Image message address [PUBLISH]:\t" << img.get());
-          image_pub_->publish(std::move(img));
-          info_pub_->publish(std::move(ci));
-        } else {
-          camera_transport_pub_.publish(*img, *ci);
+  auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).transient_local().reliable();
+  {
+    auto callback = [this](const sun_msgs::msg::OperatingStatus::SharedPtr msg) {
+      streaming_enabled_ = msg->state == sun_msgs::msg::OperatingStatus::MANUAL_OPERATING;
+      if (streaming_enabled_) {
+        if (!streaming_timer_) {
+          if (!camera_->start()) {
+            return;
+          }
+          std::chrono::milliseconds period(static_cast<int>(1000.0 / parameters_.getFps()));
+          streaming_timer_ = create_wall_timer(period, [this]() {
+            capture_and_publish(); });
         }
       }
-    }
-  };
-}
-
-V4L2Camera::~V4L2Camera()
-{
-  canceled_.store(true);
-  if (capture_thread_.joinable()) {
-    capture_thread_.join();
+      else {
+        if (streaming_timer_) {
+          if (!camera_->stop()) {
+            return;
+          }
+          streaming_timer_->cancel();
+          streaming_timer_.reset();
+        }
+      }
+    };
+    op_status_sub_ = create_subscription<sun_msgs::msg::OperatingStatus>(
+      "/operating/status", qos, callback);
   }
 }
+
+V4L2Camera::~V4L2Camera() {}
 
 void V4L2Camera::applyParameters()
 {
@@ -295,6 +272,45 @@ bool V4L2Camera::checkCameraInfo(
   sensor_msgs::msg::CameraInfo const & ci)
 {
   return ci.width == img.width && ci.height == img.height;
+}
+
+void V4L2Camera::capture_and_publish()
+{
+  RCLCPP_DEBUG(get_logger(), "Capture...");
+  auto img = camera_->capture();
+  if (img == nullptr) {
+    // Failed capturing image, assume it is temporarily and continue a bit later
+    return;
+  }
+
+  auto stamp = now();
+  if (img->encoding != output_encoding_) {
+    RCLCPP_WARN_ONCE(
+      get_logger(),
+      "Image encoding not the same as requested output, performing possibly slow conversion: "
+      "%s => %s",
+      img->encoding.c_str(), output_encoding_.c_str());
+    img = convert(*img);
+  }
+  img->header.stamp = stamp;
+  img->header.frame_id = camera_frame_id_;
+
+  auto ci = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_->getCameraInfo());
+  if (!checkCameraInfo(*img, *ci)) {
+    *ci = sensor_msgs::msg::CameraInfo{};
+    ci->height = img->height;
+    ci->width = img->width;
+  }
+
+  ci->header.stamp = stamp;
+
+  if (get_node_options().use_intra_process_comms()) {
+    RCLCPP_DEBUG_STREAM(get_logger(), "Image message address [PUBLISH]:\t" << img.get());
+    image_pub_->publish(std::move(img));
+    info_pub_->publish(std::move(ci));
+  } else {
+    camera_transport_pub_.publish(*img, *ci);
+  }
 }
 
 }  // namespace v4l2_camera

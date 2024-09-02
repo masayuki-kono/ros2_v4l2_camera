@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include <rclcpp/node_interfaces/node_logging_interface.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
 #include "v4l2_camera/control.hpp"
@@ -34,7 +35,9 @@ namespace v4l2_camera
 class V4l2CameraDevice
 {
 public:
-  explicit V4l2CameraDevice(std::string device);
+  explicit V4l2CameraDevice(
+    std::string device,
+    rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr logging_interface);
 
   bool open();
   bool start();
@@ -82,6 +85,8 @@ private:
 
   std::string device_;
   int fd_;
+
+  rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr logging_interface_;
 
   v4l2_capability capabilities_;
   std::vector<ImageFormat> image_formats_;
