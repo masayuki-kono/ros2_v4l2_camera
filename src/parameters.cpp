@@ -38,6 +38,7 @@ void Parameters::declareStaticParameters()
     true);
   declareParameter("camera_frame_id", "camera", "Frame id inserted in published image", true);
   declareParameter("fps", 30.0, "FPS", true);
+  declareParameter("vertical_flip", false, "Flip Vertical", true);
 }
 
 void Parameters::declareOutputParameters()
