@@ -259,11 +259,24 @@ bool V4L2Camera::requestImageSize(std::vector<int64_t> const & size)
 
 sensor_msgs::msg::Image::UniquePtr V4L2Camera::convert(sensor_msgs::msg::Image const & img) const
 {
-  auto tracked_object = std::shared_ptr<const void>{};
-  auto cvImg = cv_bridge::toCvShare(img, tracked_object);
+  auto cvImg = cv_bridge::toCvCopy(img);
+
+  if (img.encoding != output_encoding_) {
+    RCLCPP_WARN_ONCE(
+      get_logger(),
+      "Image encoding not the same as requested output, performing possibly slow conversion: "
+      "%s => %s",
+      img.encoding.c_str(), output_encoding_.c_str());
+    cvImg = cv_bridge::cvtColor(cvImg, output_encoding_);
+  }
+  if (parameters_.getVerticalFlip()) {
+    cv::Mat flippedImg;
+    cv::flip(cvImg->image, flippedImg, 0);
+    cvImg->image = flippedImg;
+  }
+
   auto outImg = std::make_unique<sensor_msgs::msg::Image>();
-  auto cvConvertedImg = cv_bridge::cvtColor(cvImg, output_encoding_);
-  cvConvertedImg->toImageMsg(*outImg);
+  cvImg->toImageMsg(*outImg);
   return outImg;
 }
 
@@ -284,14 +297,7 @@ void V4L2Camera::capture_and_publish()
   }
 
   auto stamp = now();
-  if (img->encoding != output_encoding_) {
-    RCLCPP_WARN_ONCE(
-      get_logger(),
-      "Image encoding not the same as requested output, performing possibly slow conversion: "
-      "%s => %s",
-      img->encoding.c_str(), output_encoding_.c_str());
-    img = convert(*img);
-  }
+  img = convert(*img);
   img->header.stamp = stamp;
   img->header.frame_id = camera_frame_id_;
 
