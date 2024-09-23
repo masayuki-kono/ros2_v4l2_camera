@@ -78,6 +78,7 @@ public:
   std::vector<int64_t> getImageSize() const {return getValue<std::vector<int64_t>>("image_size");}
   double getFps() const {return getValue<double>("fps");}
   bool getVerticalFlip() const {return getValue<bool>("vertical_flip");}
+  std::vector<int64_t> getDownsampling() const {return getValue<std::vector<int64_t>>("downsampling");}
 
   std::vector<rclcpp::Parameter> getControlParameters() const
   {
