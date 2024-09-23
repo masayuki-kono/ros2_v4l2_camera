@@ -274,6 +274,14 @@ sensor_msgs::msg::Image::UniquePtr V4L2Camera::convert(sensor_msgs::msg::Image c
     cv::flip(cvImg->image, flippedImg, 0);
     cvImg->image = flippedImg;
   }
+  auto down_image_size = parameters_.getDownsampling();
+  if (!down_image_size.empty()) {
+    cv::Mat resizedImg;
+    auto width = down_image_size.at(0);
+    auto height = down_image_size.at(1);
+    cv::resize(cvImg->image, resizedImg, cv::Size(width, height), 0, 0, cv::INTER_AREA);
+    cvImg->image = resizedImg;
+  }
 
   auto outImg = std::make_unique<sensor_msgs::msg::Image>();
   cvImg->toImageMsg(*outImg);

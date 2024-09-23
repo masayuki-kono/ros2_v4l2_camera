@@ -39,6 +39,9 @@ void Parameters::declareStaticParameters()
   declareParameter("camera_frame_id", "camera", "Frame id inserted in published image", true);
   declareParameter("fps", 30.0, "FPS", true);
   declareParameter("vertical_flip", false, "Flip Vertical", true);
+  declareParameter<std::vector<int64_t>>(
+    "downsampling", {640, 480}, "Image width & height after downsampling",
+    true);
 }
 
 void Parameters::declareOutputParameters()
