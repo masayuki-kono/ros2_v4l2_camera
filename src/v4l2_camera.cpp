@@ -270,11 +270,21 @@ sensor_msgs::msg::Image::UniquePtr V4L2Camera::convert(sensor_msgs::msg::Image c
       img.encoding.c_str(), output_encoding_.c_str());
     cvImg = cv_bridge::cvtColor(cvImg, output_encoding_);
   }
-  if (parameters_.getVerticalFlip()) {
-    cv::Mat flippedImg;
-    cv::flip(cvImg->image, flippedImg, 0);
-    cvImg->image = flippedImg;
+
+  int flipCode = -2; // -1: both flips, 1: horizontal only, 0: vertical only
+  if (parameters_.getHorizontalFlip() && parameters_.getVerticalFlip()) {
+      flipCode = -1;
+  } else if (parameters_.getHorizontalFlip()) {
+      flipCode = 1;
+  } else if (parameters_.getVerticalFlip()) {
+      flipCode = 0;
   }
+  if (flipCode != -2) {
+      cv::Mat flippedImg;
+      cv::flip(cvImg->image, flippedImg, flipCode);
+      cvImg->image = flippedImg;
+  }
+
   auto down_image_size = parameters_.getDownsampling();
   if (!down_image_size.empty()) {
     cv::Mat resizedImg;
