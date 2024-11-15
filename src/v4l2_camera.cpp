@@ -284,12 +284,6 @@ sensor_msgs::msg::Image::UniquePtr V4L2Camera::convert(sensor_msgs::msg::Image c
     cvImg->image = resizedImg;
   }
 
-  // display vertical guide line in the center
-  int center_x = cvImg->image.cols / 2;
-  for (int i = 0; i < cvImg->image.rows; i += 10) {
-      cv::line(cvImg->image, cv::Point(center_x, i), cv::Point(center_x, i + 5), cv::Scalar(0, 255, 0), 1);
-  }
-
   auto outImg = std::make_unique<sensor_msgs::msg::Image>();
   cvImg->toImageMsg(*outImg);
   return outImg;
