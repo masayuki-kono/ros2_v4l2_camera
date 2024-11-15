@@ -77,6 +77,7 @@ public:
   std::string getPixelFormat() const {return getValue<std::string>("pixel_format");}
   std::vector<int64_t> getImageSize() const {return getValue<std::vector<int64_t>>("image_size");}
   double getFps() const {return getValue<double>("fps");}
+  bool getHorizontalFlip() const {return getValue<bool>("horizontal_flip");}
   bool getVerticalFlip() const {return getValue<bool>("vertical_flip");}
   std::vector<int64_t> getDownsampling() const {return getValue<std::vector<int64_t>>("downsampling");}
 
