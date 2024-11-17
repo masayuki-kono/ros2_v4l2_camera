@@ -81,7 +81,9 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).transient_local().reliable();
   {
     auto callback = [this](const sun_msgs::msg::OperatingStatus::SharedPtr msg) {
-      streaming_enabled_ = msg->state == sun_msgs::msg::OperatingStatus::MANUAL_OPERATING;
+      streaming_enabled_ = msg->state == sun_msgs::msg::OperatingStatus::MANUAL_OPERATING ||
+        msg->state == sun_msgs::msg::OperatingStatus::MANUAL_OPERATING_EDGE_STOP_ENABLED ||
+        msg->state == sun_msgs::msg::OperatingStatus::MANUAL_OPERATING_EDGE_STOP_DISABLED;
       if (streaming_enabled_) {
         if (!streaming_timer_) {
           std::chrono::milliseconds period(static_cast<int>(1000.0 / parameters_.getFps()));
