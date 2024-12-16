@@ -29,7 +29,6 @@
 
 #include "v4l2_camera/visibility_control.h"
 #include "v4l2_camera/parameters.hpp"
-#include "sun_msgs/msg/operating_status.hpp"
 
 namespace v4l2_camera
 {
@@ -55,9 +54,6 @@ private:
   // Publisher used for inter process comm
   image_transport::CameraPublisher camera_transport_pub_;
   image_transport::CameraPublisher thumbnail_transport_pub_;
-
-  /// Subscription of OperatingStatus
-  rclcpp::Subscription<sun_msgs::msg::OperatingStatus>::SharedPtr op_status_sub_;
 
   /// Streaming cyclic timer
   rclcpp::TimerBase::SharedPtr streaming_timer_;

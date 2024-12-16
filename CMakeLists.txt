@@ -24,7 +24,6 @@ find_package(rclcpp_components REQUIRED)
 find_package(camera_info_manager REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
-find_package(sun_msgs REQUIRED)
 
 add_library(v4l2_camera
   src/parameters.cpp
@@ -42,7 +41,7 @@ ament_target_dependencies(v4l2_camera
   "camera_info_manager"
   "cv_bridge"
   "image_transport"
-  "sun_msgs")
+)
 
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
