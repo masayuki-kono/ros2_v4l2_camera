@@ -14,8 +14,6 @@
 
 #include "v4l2_camera/v4l2_camera.hpp"
 
-#include <cv_bridge/cv_bridge.h>
-
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -43,11 +41,16 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   // else transport plugins will fail to declare their parameters
   auto image_topic_name = std::string(get_name()) + "/image_raw";
   auto info_topic_name = std::string(get_name()) + "/camera_info";
+  auto thumbnail_image_topic_name = std::string(get_name()) + "/image_thumbnail";
+  auto thumbnail_info_topic_name = std::string(get_name()) + "/thumbnail_info";
   if (options.use_intra_process_comms()) {
     image_pub_ = create_publisher<sensor_msgs::msg::Image>(image_topic_name, 10);
     info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>(info_topic_name, 10);
+    thumbnail_image_pub_ = create_publisher<sensor_msgs::msg::Image>(thumbnail_image_topic_name, 10);
+    thumbnail_info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>(thumbnail_info_topic_name, 10);
   } else {
     camera_transport_pub_ = image_transport::create_camera_publisher(this, image_topic_name);
+    thumbnail_transport_pub_ = image_transport::create_camera_publisher(this, thumbnail_image_topic_name);
   }
 
   parameters_.declareStaticParameters();
@@ -260,47 +263,6 @@ bool V4L2Camera::requestImageSize(std::vector<int64_t> const & size)
   return camera_->requestDataFormat(dataFormat);
 }
 
-sensor_msgs::msg::Image::UniquePtr V4L2Camera::convert(sensor_msgs::msg::Image const & img) const
-{
-  auto cvImg = cv_bridge::toCvCopy(img);
-
-  if (img.encoding != output_encoding_) {
-    RCLCPP_WARN_ONCE(
-      get_logger(),
-      "Image encoding not the same as requested output, performing possibly slow conversion: "
-      "%s => %s",
-      img.encoding.c_str(), output_encoding_.c_str());
-    cvImg = cv_bridge::cvtColor(cvImg, output_encoding_);
-  }
-
-  int flipCode = -2; // -1: both flips, 1: horizontal only, 0: vertical only
-  if (parameters_.getHorizontalFlip() && parameters_.getVerticalFlip()) {
-      flipCode = -1;
-  } else if (parameters_.getHorizontalFlip()) {
-      flipCode = 1;
-  } else if (parameters_.getVerticalFlip()) {
-      flipCode = 0;
-  }
-  if (flipCode != -2) {
-      cv::Mat flippedImg;
-      cv::flip(cvImg->image, flippedImg, flipCode);
-      cvImg->image = flippedImg;
-  }
-
-  auto down_image_size = parameters_.getDownsampling();
-  if (!down_image_size.empty()) {
-    cv::Mat resizedImg;
-    auto width = down_image_size.at(0);
-    auto height = down_image_size.at(1);
-    cv::resize(cvImg->image, resizedImg, cv::Size(width, height), 0, 0, cv::INTER_AREA);
-    cvImg->image = resizedImg;
-  }
-
-  auto outImg = std::make_unique<sensor_msgs::msg::Image>();
-  cvImg->toImageMsg(*outImg);
-  return outImg;
-}
-
 bool V4L2Camera::checkCameraInfo(
   sensor_msgs::msg::Image const & img,
   sensor_msgs::msg::CameraInfo const & ci)
@@ -318,9 +280,49 @@ void V4L2Camera::capture_and_publish()
   }
 
   auto stamp = now();
-  img = convert(*img);
   img->header.stamp = stamp;
   img->header.frame_id = camera_frame_id_;
+
+  auto cvImg = cv_bridge::toCvCopy(*img);
+
+  if (img->encoding != output_encoding_) {
+    cvImg = cv_bridge::cvtColor(cvImg, output_encoding_);
+  }
+
+  // flip image
+  int flipCode = -2; // -1: both flips, 1: horizontal only, 0: vertical only
+  if (parameters_.getHorizontalFlip() && parameters_.getVerticalFlip()) {
+      flipCode = -1;
+  } else if (parameters_.getHorizontalFlip()) {
+      flipCode = 1;
+  } else if (parameters_.getVerticalFlip()) {
+      flipCode = 0;
+  }
+  if (flipCode != -2) {
+      cv::Mat flippedImg;
+      cv::flip(cvImg->image, flippedImg, flipCode);
+      cvImg->image = flippedImg;
+  }
+
+  // create thumbnail image
+  sensor_msgs::msg::Image::UniquePtr thumbnailMsg;
+  auto thumbnailImageSize = parameters_.getThumbnailImageSize();
+  if (!thumbnailImageSize.empty()) {
+    cv::Mat resizedImg;
+    auto width = thumbnailImageSize.at(0);
+    auto height = thumbnailImageSize.at(1);
+    cv::resize(cvImg->image, resizedImg, cv::Size(width, height), 0, 0, cv::INTER_AREA);
+    
+    auto thumbnailCvImg = std::make_shared<cv_bridge::CvImage>();
+    thumbnailCvImg->image = resizedImg;
+    thumbnailCvImg->encoding = cvImg->encoding;
+    thumbnailCvImg->header = cvImg->header;
+
+    thumbnailMsg = std::make_unique<sensor_msgs::msg::Image>();
+    thumbnailCvImg->toImageMsg(*thumbnailMsg);
+  }
+
+  cvImg->toImageMsg(*img);
 
   auto ci = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_->getCameraInfo());
   if (!checkCameraInfo(*img, *ci)) {
@@ -328,7 +330,6 @@ void V4L2Camera::capture_and_publish()
     ci->height = img->height;
     ci->width = img->width;
   }
-
   ci->header.stamp = stamp;
 
   if (get_node_options().use_intra_process_comms()) {
@@ -337,6 +338,18 @@ void V4L2Camera::capture_and_publish()
     info_pub_->publish(std::move(ci));
   } else {
     camera_transport_pub_.publish(*img, *ci);
+  }
+
+  if (thumbnailMsg) {
+    auto thumbnailInfo = sensor_msgs::msg::CameraInfo{};
+    thumbnailInfo.header.stamp = stamp;
+    thumbnailInfo.height = thumbnailMsg->height;
+    thumbnailInfo.width = thumbnailMsg->width;
+    if (get_node_options().use_intra_process_comms()) {
+      thumbnail_image_pub_->publish(std::move(thumbnailMsg));
+    } else {
+      thumbnail_transport_pub_.publish(*thumbnailMsg, thumbnailInfo);
+    }
   }
 }
 
