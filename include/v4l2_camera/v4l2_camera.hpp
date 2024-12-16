@@ -23,6 +23,7 @@
 
 #include <camera_info_manager/camera_info_manager.hpp>
 #include <image_transport/image_transport.hpp>
+#include <cv_bridge/cv_bridge.h>
 #include <rcl_interfaces/msg/parameter.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -48,9 +49,12 @@ private:
   // Publisher used for intra process comm
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr thumbnail_image_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr thumbnail_info_pub_;
 
   // Publisher used for inter process comm
   image_transport::CameraPublisher camera_transport_pub_;
+  image_transport::CameraPublisher thumbnail_transport_pub_;
 
   /// Subscription of OperatingStatus
   rclcpp::Subscription<sun_msgs::msg::OperatingStatus>::SharedPtr op_status_sub_;
@@ -73,8 +77,6 @@ private:
 
   bool requestPixelFormat(std::string const & fourcc);
   bool requestImageSize(std::vector<int64_t> const & size);
-
-  sensor_msgs::msg::Image::UniquePtr convert(sensor_msgs::msg::Image const & img) const;
 
   bool checkCameraInfo(
     sensor_msgs::msg::Image const & img,

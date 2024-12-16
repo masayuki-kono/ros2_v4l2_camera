@@ -41,7 +41,7 @@ void Parameters::declareStaticParameters()
   declareParameter("horizontal_flip", false, "Flip Horizontal", true);
   declareParameter("vertical_flip", false, "Flip Vertical", true);
   declareParameter<std::vector<int64_t>>(
-    "downsampling", {640, 480}, "Image width & height after downsampling",
+    "thumbnail_image_size", {}, "Image width & height of thumbnail image",
     true);
 }
 

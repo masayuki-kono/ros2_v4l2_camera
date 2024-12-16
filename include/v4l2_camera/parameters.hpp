@@ -79,7 +79,7 @@ public:
   double getFps() const {return getValue<double>("fps");}
   bool getHorizontalFlip() const {return getValue<bool>("horizontal_flip");}
   bool getVerticalFlip() const {return getValue<bool>("vertical_flip");}
-  std::vector<int64_t> getDownsampling() const {return getValue<std::vector<int64_t>>("downsampling");}
+  std::vector<int64_t> getThumbnailImageSize() const {return getValue<std::vector<int64_t>>("thumbnail_image_size");}
 
   std::vector<rclcpp::Parameter> getControlParameters() const
   {
