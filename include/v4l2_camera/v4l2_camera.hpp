@@ -48,12 +48,9 @@ private:
   // Publisher used for intra process comm
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr thumbnail_image_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr thumbnail_info_pub_;
 
   // Publisher used for inter process comm
   image_transport::CameraPublisher camera_transport_pub_;
-  image_transport::CameraPublisher thumbnail_transport_pub_;
 
   /// Streaming cyclic timer
   rclcpp::TimerBase::SharedPtr streaming_timer_;
