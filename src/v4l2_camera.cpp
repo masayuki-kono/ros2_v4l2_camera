@@ -269,19 +269,18 @@ void V4L2Camera::capture_and_publish()
     cvImg = cv_bridge::cvtColor(cvImg, output_encoding_);
   }
 
-  // flip image
-  int flipCode = -2; // -1: both flips, 1: horizontal only, 0: vertical only
-  if (parameters_.getHorizontalFlip() && parameters_.getVerticalFlip()) {
-      flipCode = -1;
-  } else if (parameters_.getHorizontalFlip()) {
-      flipCode = 1;
-  } else if (parameters_.getVerticalFlip()) {
-      flipCode = 0;
+  int rotateFlag = parameters_.getRotateFlag();
+  if (rotateFlag >= 0 && rotateFlag <= 2) {
+    cv::Mat rotatedImg;
+    cv::rotate(cvImg->image, rotatedImg, rotateFlag);
+    cvImg->image = rotatedImg;
   }
-  if (flipCode != -2) {
-      cv::Mat flippedImg;
-      cv::flip(cvImg->image, flippedImg, flipCode);
-      cvImg->image = flippedImg;
+
+  int flipCode = parameters_.getFlipCode();
+  if (flipCode >= -1 && flipCode <= 1) {
+    cv::Mat flippedImg;
+    cv::flip(cvImg->image, flippedImg, flipCode);
+    cvImg->image = flippedImg;
   }
 
   // create thumbnail image
