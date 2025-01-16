@@ -38,8 +38,8 @@ void Parameters::declareStaticParameters()
     true);
   declareParameter("camera_frame_id", "camera", "Frame id inserted in published image", true);
   declareParameter("fps", 30.0, "FPS", true);
-  declareParameter("horizontal_flip", false, "Flip Horizontal", true);
-  declareParameter("vertical_flip", false, "Flip Vertical", true);
+  declareParameter("rotate_flag", -1, "Rotate flag", true);
+  declareParameter("flip_code", -2, "Flip code", true);
   declareParameter<std::vector<int64_t>>(
     "thumbnail_image_size", {}, "Image width & height of thumbnail image",
     true);
