@@ -40,9 +40,6 @@ void Parameters::declareStaticParameters()
   declareParameter("fps", 30.0, "FPS", true);
   declareParameter("rotate_flag", -1, "Rotate flag", true);
   declareParameter("flip_code", -2, "Flip code", true);
-  declareParameter<std::vector<int64_t>>(
-    "thumbnail_image_size", {}, "Image width & height of thumbnail image",
-    true);
 }
 
 void Parameters::declareOutputParameters()

@@ -79,7 +79,6 @@ public:
   double getFps() const {return getValue<double>("fps");}
   int getRotateFlag() const {return getValue<int>("rotate_flag");}
   int getFlipCode() const {return getValue<int>("flip_code");}
-  std::vector<int64_t> getThumbnailImageSize() const {return getValue<std::vector<int64_t>>("thumbnail_image_size");}
 
   std::vector<rclcpp::Parameter> getControlParameters() const
   {
