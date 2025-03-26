@@ -44,17 +44,12 @@ private:
 
   std::shared_ptr<V4l2CameraDevice> camera_;
 
-  // Publisher used for intra process comm
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_;
+  image_transport::CameraPublisher image_pub_;
 
-  // Publisher used for inter process comm
-  image_transport::CameraPublisher camera_transport_pub_;
+  /// Streaming cyclic timer
+  rclcpp::TimerBase::SharedPtr streaming_timer_;
 
-  std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
-
-  std::thread capture_thread_;
-  std::atomic<bool> canceled_;
+  std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_;
 
   std::string camera_frame_id_;
   std::string output_encoding_;
@@ -67,11 +62,11 @@ private:
   bool requestPixelFormat(std::string const & fourcc);
   bool requestImageSize(std::vector<int64_t> const & size);
 
-  sensor_msgs::msg::Image::UniquePtr convert(sensor_msgs::msg::Image const & img) const;
-
   bool checkCameraInfo(
     sensor_msgs::msg::Image const & img,
     sensor_msgs::msg::CameraInfo const & ci);
+
+  void capture_and_publish();
 };
 
 }  // namespace v4l2_camera

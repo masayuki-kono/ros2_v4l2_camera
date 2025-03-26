@@ -76,6 +76,9 @@ public:
 
   std::string getPixelFormat() const {return getValue<std::string>("pixel_format");}
   std::vector<int64_t> getImageSize() const {return getValue<std::vector<int64_t>>("image_size");}
+  double getFps() const {return getValue<double>("fps");}
+  int getRotateFlag() const {return getValue<int>("rotate_flag");}
+  int getFlipCode() const {return getValue<int>("flip_code");}
 
   std::vector<rclcpp::Parameter> getControlParameters() const
   {
