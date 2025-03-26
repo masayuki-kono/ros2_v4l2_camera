@@ -282,8 +282,6 @@ void V4L2Camera::capture_and_publish()
   ci->header.stamp = stamp;
 
   image_pub_.publish(std::move(img), std::move(ci));
-
-  RCLCPP_WARN(get_logger(), "fps:%d,rotateFlag:%d,flipCode:%d", parameters_.getFps(), rotateFlag, flipCode);
 }
 
 }  // namespace v4l2_camera
