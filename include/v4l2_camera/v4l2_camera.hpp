@@ -45,23 +45,16 @@ private:
 
   std::shared_ptr<V4l2CameraDevice> camera_;
 
-  // Publisher used for intra process comm
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_;
-
   // Publisher used for inter process comm
-  image_transport::CameraPublisher camera_transport_pub_;
+  image_transport::CameraPublisher image_pub_;
 
   /// Streaming cyclic timer
   rclcpp::TimerBase::SharedPtr streaming_timer_;
 
-  std::shared_ptr<camera_info_manager::CameraInfoManager> cinfo_;
+  std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_;
 
   std::string camera_frame_id_;
   std::string output_encoding_;
-
-  /// Streaming enabled 
-  bool streaming_enabled_;
 
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_;
 
