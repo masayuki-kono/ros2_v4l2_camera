@@ -37,6 +37,9 @@ void Parameters::declareStaticParameters()
     "camera_info_url", "", "The location for getting camera calibration data",
     true);
   declareParameter("camera_frame_id", "camera", "Frame id inserted in published image", true);
+  declareParameter("fps", 30.0, "FPS", true);
+  declareParameter("rotate_flag", -1, "Rotate flag", true);
+  declareParameter("flip_code", -2, "Flip code", true);
 }
 
 void Parameters::declareOutputParameters()

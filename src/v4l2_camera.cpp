@@ -34,19 +34,8 @@ namespace v4l2_camera
 V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 : rclcpp::Node{"v4l2_camera", options},
   parameters_{get_node_parameters_interface(), get_node_topics_interface(),
-    get_node_logging_interface()},
-  canceled_{false}
+  get_node_logging_interface()}
 {
-  // Prepare publisher
-  // This should happen before registering on_set_parameters_callback,
-  // else transport plugins will fail to declare their parameters
-  if (options.use_intra_process_comms()) {
-    image_pub_ = create_publisher<sensor_msgs::msg::Image>("image_raw", 10);
-    info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", 10);
-  } else {
-    camera_transport_pub_ = image_transport::create_camera_publisher(this, "image_raw");
-  }
-
   parameters_.declareStaticParameters();
   parameters_.declareOutputParameters();
 
@@ -57,7 +46,7 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
     return;
   }
 
-  cinfo_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_->getCameraName());
+  camera_info_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_->getCameraName());
 
   parameters_.declareDeviceParameters(*camera_);
 
@@ -74,58 +63,21 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
     return;
   }
 
-  // Start capture thread
-  capture_thread_ = std::thread{
-    [this]() -> void {
-      while (rclcpp::ok() && !canceled_.load()) {
-        RCLCPP_DEBUG(get_logger(), "Capture...");
-        auto img = camera_->capture();
-        if (img == nullptr) {
-          // Failed capturing image, assume it is temporarily and continue a bit later
-          std::this_thread::sleep_for(std::chrono::milliseconds(10));
-          continue;
-        }
+  auto image_topic_name = std::string(get_name()) + "/image_raw";
+  image_pub_ = image_transport::create_camera_publisher(this, image_topic_name);
 
-        auto stamp = now();
-        if (img->encoding != output_encoding_) {
-          RCLCPP_WARN_ONCE(
-            get_logger(),
-            "Image encoding not the same as requested output, performing possibly slow conversion: "
-            "%s => %s",
-            img->encoding.c_str(), output_encoding_.c_str());
-          img = convert(*img);
-        }
-        img->header.stamp = stamp;
-        img->header.frame_id = camera_frame_id_;
-
-        auto ci = std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo_->getCameraInfo());
-        if (!checkCameraInfo(*img, *ci)) {
-          *ci = sensor_msgs::msg::CameraInfo{};
-          ci->height = img->height;
-          ci->width = img->width;
-        }
-
-        ci->header.stamp = stamp;
-        ci->header.frame_id = camera_frame_id_;
-
-        if (get_node_options().use_intra_process_comms()) {
-          RCLCPP_DEBUG_STREAM(get_logger(), "Image message address [PUBLISH]:\t" << img.get());
-          image_pub_->publish(std::move(img));
-          info_pub_->publish(std::move(ci));
-        } else {
-          camera_transport_pub_.publish(*img, *ci);
-        }
-      }
+  std::chrono::milliseconds period(static_cast<int>(1000.0 / parameters_.getFps()));
+  streaming_timer_ = create_wall_timer(period, [this]() {
+    if (image_pub_.getNumSubscribers() > 0) {
+      capture_and_publish();
     }
-  };
+  });
 }
 
 V4L2Camera::~V4L2Camera()
 {
-  canceled_.store(true);
-  if (capture_thread_.joinable()) {
-    capture_thread_.join();
-  }
+  streaming_timer_->cancel();
+  camera_->stop();
 }
 
 void V4L2Camera::applyParameters()
@@ -135,8 +87,8 @@ void V4L2Camera::applyParameters()
   // Camera info parameters
   auto camera_info_url = parameters_.getCameraInfoUrl();
   if (camera_info_url != "") {
-    if (cinfo_->validateURL(camera_info_url)) {
-      cinfo_->loadCameraInfo(camera_info_url);
+    if (camera_info_->validateURL(camera_info_url)) {
+      camera_info_->loadCameraInfo(camera_info_url);
     } else {
       RCLCPP_WARN(get_logger(), "Invalid camera info URL: %s", camera_info_url.c_str());
     }
@@ -229,8 +181,8 @@ bool V4L2Camera::handleParameter(rclcpp::Parameter const & param)
     return success;
   } else if (param.get_name() == "camera_info_url") {
     auto camera_info_url = param.as_string();
-    if (cinfo_->validateURL(camera_info_url)) {
-      return cinfo_->loadCameraInfo(camera_info_url);
+    if (camera_info_->validateURL(camera_info_url)) {
+      return camera_info_->loadCameraInfo(camera_info_url);
     } else {
       RCLCPP_WARN(get_logger(), "Invalid camera info URL: %s", camera_info_url.c_str());
       return false;
@@ -280,21 +232,58 @@ bool V4L2Camera::requestImageSize(std::vector<int64_t> const & size)
   return camera_->requestDataFormat(dataFormat);
 }
 
-sensor_msgs::msg::Image::UniquePtr V4L2Camera::convert(sensor_msgs::msg::Image const & img) const
-{
-  auto tracked_object = std::shared_ptr<const void>{};
-  auto cvImg = cv_bridge::toCvShare(img, tracked_object);
-  auto outImg = std::make_unique<sensor_msgs::msg::Image>();
-  auto cvConvertedImg = cv_bridge::cvtColor(cvImg, output_encoding_);
-  cvConvertedImg->toImageMsg(*outImg);
-  return outImg;
-}
-
 bool V4L2Camera::checkCameraInfo(
   sensor_msgs::msg::Image const & img,
   sensor_msgs::msg::CameraInfo const & ci)
 {
   return ci.width == img.width && ci.height == img.height;
+}
+
+void V4L2Camera::capture_and_publish()
+{
+  auto img = camera_->capture();
+  if (img == nullptr) {
+    // Failed capturing image, assume it is temporarily and continue a bit later
+    return;
+  }
+
+  auto stamp = now();
+  img->header.stamp = stamp;
+  img->header.frame_id = camera_frame_id_;
+
+  auto cvImg = cv_bridge::toCvCopy(*img);
+
+  if (img->encoding != output_encoding_) {
+    cvImg = cv_bridge::cvtColor(cvImg, output_encoding_);
+  }
+
+  int rotateFlag = parameters_.getRotateFlag();
+  if (rotateFlag >= 0 && rotateFlag <= 2) {
+    cv::Mat rotatedImg;
+    cv::rotate(cvImg->image, rotatedImg, rotateFlag);
+    cvImg->image = rotatedImg;
+  }
+
+  int flipCode = parameters_.getFlipCode();
+  if (flipCode >= -1 && flipCode <= 1) {
+    cv::Mat flippedImg;
+    cv::flip(cvImg->image, flippedImg, flipCode);
+    cvImg->image = flippedImg;
+  }
+
+  cvImg->toImageMsg(*img);
+
+  auto ci = std::make_unique<sensor_msgs::msg::CameraInfo>(camera_info_->getCameraInfo());
+  if (!checkCameraInfo(*img, *ci)) {
+    *ci = sensor_msgs::msg::CameraInfo{};
+    ci->height = img->height;
+    ci->width = img->width;
+  }
+  ci->header.stamp = stamp;
+
+  image_pub_.publish(std::move(img), std::move(ci));
+
+  RCLCPP_WARN(get_logger(), "fps:%d,rotateFlag:%d,flipCode:%d", parameters_.getFps(), rotateFlag, flipCode);
 }
 
 }  // namespace v4l2_camera
