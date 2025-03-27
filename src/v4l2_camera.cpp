@@ -64,7 +64,12 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   }
 
   auto image_topic_name = std::string(get_name()) + "/image_raw";
-  image_pub_ = image_transport::create_camera_publisher(this, image_topic_name);
+
+  // Allow overriding QoS settings (history, depth, reliability)
+  rclcpp::PublisherOptions pub_options;
+  pub_options.qos_overriding_options = rclcpp::QosOverridingOptions::with_default_policies();
+  image_pub_ = image_transport::create_camera_publisher(this,
+    image_topic_name, rmw_qos_profile_default, pub_options);
 
   std::chrono::milliseconds period(static_cast<int>(1000.0 / parameters_.getFps()));
   streaming_timer_ = create_wall_timer(period, [this]() {
