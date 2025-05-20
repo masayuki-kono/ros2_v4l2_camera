@@ -34,7 +34,8 @@ namespace v4l2_camera
 V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 : rclcpp::Node{"v4l2_camera", options},
   parameters_{get_node_parameters_interface(), get_node_topics_interface(),
-  get_node_logging_interface()}
+  get_node_logging_interface()},
+  subscribers_count_{0}
 {
   parameters_.declareStaticParameters();
   parameters_.declareOutputParameters();
@@ -73,9 +74,19 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 
   std::chrono::milliseconds period(static_cast<int>(1000.0 / parameters_.getFps()));
   streaming_timer_ = create_wall_timer(period, [this]() {
-    if (image_pub_.getNumSubscribers() > 0) {
+    auto current_subscribers_count = image_pub_.getNumSubscribers();
+    if (current_subscribers_count > 0) {
+      if (subscribers_count_ == 0) {
+        RCLCPP_INFO(get_logger(), "Detect subscriber, starting to capture");
+      }
       capture_and_publish();
     }
+    else {
+      if (subscribers_count_ > 0) {
+        RCLCPP_INFO(get_logger(), "No subscriber, stopping to capture");
+      }
+    }
+    subscribers_count_ = current_subscribers_count;
   });
 }
 
