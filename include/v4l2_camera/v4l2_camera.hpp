@@ -51,6 +51,7 @@ private:
 
   std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_;
 
+  std::size_t subscribers_count_;
   std::string camera_frame_id_;
   std::string output_encoding_;
 
