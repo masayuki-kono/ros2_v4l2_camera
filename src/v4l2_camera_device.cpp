@@ -33,8 +33,9 @@
 using v4l2_camera::V4l2CameraDevice;
 using sensor_msgs::msg::Image;
 
-V4l2CameraDevice::V4l2CameraDevice(std::string device)
-: device_{std::move(device)}
+V4l2CameraDevice::V4l2CameraDevice(std::string device, double capture_timeout_sec)
+: device_{std::move(device)},
+  capture_timeout_sec_{capture_timeout_sec}
 {
 }
 
@@ -194,6 +195,25 @@ Image::UniquePtr V4l2CameraDevice::capture()
 
   buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   buf.memory = V4L2_MEMORY_MMAP;
+
+  fd_set fds;
+  struct timeval tv;
+  FD_ZERO(&fds);
+  FD_SET(fd_, &fds);
+  tv.tv_sec = static_cast<time_t>(capture_timeout_sec_);
+  tv.tv_usec = static_cast<suseconds_t>((capture_timeout_sec_ - tv.tv_sec) * 1000000);
+
+  int r = select(fd_ + 1, &fds, NULL, NULL, &tv);
+  if (r == -1) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("v4l2_camera"),
+      "Error dequeueing buffer: %s (%s)", strerror(errno),
+      std::to_string(errno).c_str());
+    return nullptr;
+  } else if (r == 0) {
+    RCLCPP_WARN(rclcpp::get_logger("v4l2_camera"), "Timeout waiting for camera frame");
+    return nullptr;
+  }
 
   // Dequeue buffer with new image
   if (-1 == ioctl(fd_, VIDIOC_DQBUF, &buf)) {

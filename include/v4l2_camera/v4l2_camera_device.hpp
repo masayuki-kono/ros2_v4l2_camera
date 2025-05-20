@@ -34,7 +34,7 @@ namespace v4l2_camera
 class V4l2CameraDevice
 {
 public:
-  explicit V4l2CameraDevice(std::string device);
+  explicit V4l2CameraDevice(std::string device, double capture_timeout_sec);
 
   bool open();
   bool start();
@@ -82,6 +82,8 @@ private:
 
   std::string device_;
   int fd_;
+  // Timeout for capture operation in seconds
+  const double capture_timeout_sec_;
 
   v4l2_capability capabilities_;
   std::vector<ImageFormat> image_formats_;

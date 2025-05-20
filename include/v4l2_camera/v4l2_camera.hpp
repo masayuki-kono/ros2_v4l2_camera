@@ -40,14 +40,11 @@ public:
   virtual ~V4L2Camera();
 
 private:
-  Parameters parameters_;
-
   std::shared_ptr<V4l2CameraDevice> camera_;
-
   image_transport::CameraPublisher image_pub_;
-
-  /// Streaming cyclic timer
+  rclcpp::TimerBase::SharedPtr reconnect_timer_;
   rclcpp::TimerBase::SharedPtr streaming_timer_;
+  Parameters parameters_;
 
   std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_;
 
@@ -67,7 +64,9 @@ private:
     sensor_msgs::msg::Image const & img,
     sensor_msgs::msg::CameraInfo const & ci);
 
-  void capture_and_publish();
+  void startReconnectTimer();
+  void startStreamingTimer();
+  void streamingTimerCallback();
 };
 
 }  // namespace v4l2_camera
