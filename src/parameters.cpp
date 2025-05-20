@@ -38,6 +38,8 @@ void Parameters::declareStaticParameters()
     true);
   declareParameter("camera_frame_id", "camera", "Frame id inserted in published image", true);
   declareParameter("fps", 30.0, "FPS", true);
+  declareParameter("reconnect_interval", 1.0, "Connection lost retry interval", true);
+  declareParameter("capture_timeout", 1.0, "Capture timeout", true);
   declareParameter("rotate_flag", -1, "Rotate flag", true);
   declareParameter("flip_code", -2, "Flip code", true);
 }

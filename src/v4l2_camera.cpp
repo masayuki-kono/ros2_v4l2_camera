@@ -41,7 +41,9 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   parameters_.declareOutputParameters();
 
   // Prepare camera
-  camera_ = std::make_shared<V4l2CameraDevice>(parameters_.getVideoDevice());
+  camera_ = std::make_shared<V4l2CameraDevice>(
+    parameters_.getVideoDevice(),
+    parameters_.getValue<double>("capture_timeout"));
 
   if (!camera_->open()) {
     return;
@@ -59,11 +61,6 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
       handleParameter(parameter);
     });
 
-  // Start the camera
-  if (!camera_->start()) {
-    return;
-  }
-
   auto image_topic_name = std::string(get_name()) + "/image_raw";
 
   // Allow overriding QoS settings (history, depth, reliability)
@@ -72,28 +69,25 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   image_pub_ = image_transport::create_camera_publisher(this,
     image_topic_name, rmw_qos_profile_default, pub_options);
 
-  std::chrono::milliseconds period(static_cast<int>(1000.0 / parameters_.getFps()));
-  streaming_timer_ = create_wall_timer(period, [this]() {
-    auto current_subscribers_count = image_pub_.getNumSubscribers();
-    if (current_subscribers_count > 0) {
-      if (subscribers_count_ == 0) {
-        RCLCPP_INFO(get_logger(), "Detect subscriber, starting to capture");
-      }
-      capture_and_publish();
-    }
-    else {
-      if (subscribers_count_ > 0) {
-        RCLCPP_INFO(get_logger(), "No subscriber, stopping to capture");
-      }
-    }
-    subscribers_count_ = current_subscribers_count;
-  });
+  if (camera_->start()) {
+    startStreamingTimer();
+  }
+  else {
+    startReconnectTimer();
+  }
 }
 
 V4L2Camera::~V4L2Camera()
 {
-  streaming_timer_->cancel();
-  camera_->stop();
+  if (reconnect_timer_) {
+    reconnect_timer_->reset();
+  }
+  if (streaming_timer_) {
+    streaming_timer_->reset();
+  }
+  if (camera_) {
+    camera_->stop();
+  }
 }
 
 void V4L2Camera::applyParameters()
@@ -255,11 +249,47 @@ bool V4L2Camera::checkCameraInfo(
   return ci.width == img.width && ci.height == img.height;
 }
 
-void V4L2Camera::capture_and_publish()
+void V4L2Camera::startReconnectTimer()
 {
+  reconnect_timer_ = create_wall_timer(
+    std::chrono::milliseconds(static_cast<int>(parameters_.getReconnectInterval() * 1000)),
+    [this]() {
+      if (camera_->start()) {
+        reconnect_timer_.reset();
+        startStreamingTimer();
+      }
+    });
+}
+
+void V4L2Camera::startStreamingTimer()
+{
+  streaming_timer_ = create_wall_timer(
+    std::chrono::milliseconds(static_cast<int>(1000.0 / parameters_.getFps())),
+    std::bind(&V4L2Camera::streamingTimerCallback, this));
+}
+
+void V4L2Camera::streamingTimerCallback()
+{
+  auto previous_subscribers_count = subscribers_count_;
+  subscribers_count_ = image_pub_.getNumSubscribers();
+  if (subscribers_count_ == 0) {
+    if (previous_subscribers_count > 0) {
+      RCLCPP_INFO(get_logger(), "No subscriber, stopping to capture");
+    }
+    return;
+  }
+  else {
+    if (previous_subscribers_count == 0) {
+      RCLCPP_INFO(get_logger(), "Detect subscriber, starting to capture");
+    }
+  }
+
   auto img = camera_->capture();
-  if (img == nullptr) {
-    // Failed capturing image, assume it is temporarily and continue a bit later
+  if (!img) {
+    RCLCPP_ERROR(get_logger(), "Failed to capture image, reconnecting...");
+    camera_->stop();
+    streaming_timer_.reset();
+    startReconnectTimer();
     return;
   }
 
