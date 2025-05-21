@@ -255,8 +255,12 @@ void V4L2Camera::startReconnectTimer()
     std::chrono::milliseconds(static_cast<int>(parameters_.getReconnectInterval() * 1000)),
     [this]() {
       if (camera_->start()) {
+        RCLCPP_INFO(get_logger(), "Reconnected to camera, starting streaming");
         reconnect_timer_.reset();
         startStreamingTimer();
+      }
+      else {
+        RCLCPP_ERROR(get_logger(), "Failed to reconnect to camera, retrying...");
       }
     });
 }
