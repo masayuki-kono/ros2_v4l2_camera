@@ -116,6 +116,20 @@ bool V4l2CameraDevice::open()
   return true;
 }
 
+bool V4l2CameraDevice::close()
+{
+  if (fd_ < 0) {
+    return false;
+  }
+  if (-1 == ::close(fd_)) {
+    RCLCPP_ERROR(rclcpp::get_logger("v4l2_camera"), "Failed closing device: %s", strerror(errno));
+    return false;
+  }
+  fd_ = -1;
+  RCLCPP_INFO(rclcpp::get_logger("v4l2_camera"), "Closed device");
+  return true;
+}
+
 bool V4l2CameraDevice::start()
 {
   RCLCPP_INFO(rclcpp::get_logger("v4l2_camera"), "Starting camera");

@@ -37,6 +37,7 @@ public:
   explicit V4l2CameraDevice(std::string device, double capture_timeout_sec);
 
   bool open();
+  bool close();
   bool start();
   bool stop();
 

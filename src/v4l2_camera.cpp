@@ -45,36 +45,22 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
     parameters_.getVideoDevice(),
     parameters_.getValue<double>("capture_timeout"));
 
-  if (!camera_->open()) {
-    return;
-  }
-
   camera_info_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_->getCameraName());
 
   parameters_.declareDeviceParameters(*camera_);
-
-  // Read parameters and set up callback
-  applyParameters();
-
   parameters_.setParameterChangedCallback(
     [this](rclcpp::Parameter parameter) {
       handleParameter(parameter);
     });
 
-  auto image_topic_name = std::string(get_name()) + "/image_raw";
-
   // Allow overriding QoS settings (history, depth, reliability)
+  auto image_topic_name = std::string(get_name()) + "/image_raw";
   rclcpp::PublisherOptions pub_options;
   pub_options.qos_overriding_options = rclcpp::QosOverridingOptions::with_default_policies();
   image_pub_ = image_transport::create_camera_publisher(this,
     image_topic_name, rmw_qos_profile_default, pub_options);
 
-  if (camera_->start()) {
-    startStreamingTimer();
-  }
-  else {
-    startReconnectTimer();
-  }
+  startReconnectTimer();
 }
 
 V4L2Camera::~V4L2Camera()
@@ -87,6 +73,7 @@ V4L2Camera::~V4L2Camera()
   }
   if (camera_) {
     camera_->stop();
+    camera_->close();
   }
 }
 
@@ -254,13 +241,22 @@ void V4L2Camera::startReconnectTimer()
   reconnect_timer_ = create_wall_timer(
     std::chrono::milliseconds(static_cast<int>(parameters_.getReconnectInterval() * 1000)),
     [this]() {
-      if (camera_->start()) {
-        RCLCPP_INFO(get_logger(), "Reconnected to camera, starting streaming");
+      bool connected = false;
+      do {
+        if (!camera_->open()) {
+          break;
+        }
+        applyParameters();
+        if (!camera_->start()) {
+          break;
+        }
+        RCLCPP_INFO(get_logger(), "Connected to camera, start streaming");
         reconnect_timer_.reset();
         startStreamingTimer();
-      }
-      else {
-        RCLCPP_ERROR(get_logger(), "Failed to reconnect to camera, retrying...");
+        connected = true;
+      } while(false);
+      if (!connected) {
+        camera_->close();
       }
     });
 }
@@ -292,6 +288,7 @@ void V4L2Camera::streamingTimerCallback()
   if (!img) {
     RCLCPP_ERROR(get_logger(), "Failed to capture image, reconnecting...");
     camera_->stop();
+    camera_->close();
     streaming_timer_.reset();
     startReconnectTimer();
     return;
