@@ -81,6 +81,7 @@ public:
   double getCaptureTimeout() const {return getValue<double>("capture_timeout");}
   int getRotateFlag() const {return getValue<int>("rotate_flag");}
   int getFlipCode() const {return getValue<int>("flip_code");}
+  bool getDynamicExposureEnabled() const {return getValue<bool>("dynamic_exposure_enabled");}
 
   std::vector<rclcpp::Parameter> getControlParameters() const
   {
