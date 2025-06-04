@@ -307,7 +307,7 @@ bool V4l2CameraDevice::setControlValue(uint32_t id, int32_t value)
     return false;
   }
 
-  RCLCPP_INFO(
+  RCLCPP_DEBUG(
     rclcpp::get_logger(
       "v4l2_camera"), "Succesfully set value for control %s to %s", control->name.c_str(),
     std::to_string(value).c_str());
