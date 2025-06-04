@@ -35,6 +35,7 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 : rclcpp::Node{"v4l2_camera", options},
   parameters_{get_node_parameters_interface(), get_node_topics_interface(),
   get_node_logging_interface()},
+  device_parameters_declared_{false},
   subscribers_count_{0}
 {
   parameters_.declareStaticParameters();
@@ -46,12 +47,6 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
     parameters_.getValue<double>("capture_timeout"));
 
   camera_info_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_->getCameraName());
-
-  parameters_.declareDeviceParameters(*camera_);
-  parameters_.setParameterChangedCallback(
-    [this](rclcpp::Parameter parameter) {
-      handleParameter(parameter);
-    });
 
   // Allow overriding QoS settings (history, depth, reliability)
   auto image_topic_name = std::string(get_name()) + "/image_raw";
@@ -245,6 +240,14 @@ void V4L2Camera::startReconnectTimer()
       do {
         if (!camera_->open()) {
           break;
+        }
+        if (!device_parameters_declared_) {
+          parameters_.declareDeviceParameters(*camera_);
+          device_parameters_declared_ = true;
+          parameters_.setParameterChangedCallback(
+            [this](rclcpp::Parameter parameter) {
+              handleParameter(parameter);
+            });
         }
         applyParameters();
         if (!camera_->start()) {

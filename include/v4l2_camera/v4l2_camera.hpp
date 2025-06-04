@@ -45,6 +45,7 @@ private:
   rclcpp::TimerBase::SharedPtr reconnect_timer_;
   rclcpp::TimerBase::SharedPtr streaming_timer_;
   Parameters parameters_;
+  bool device_parameters_declared_;
 
   std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_;
 
