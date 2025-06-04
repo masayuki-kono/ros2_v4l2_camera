@@ -69,7 +69,9 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   // Allow overriding QoS settings (history, depth, reliability)
   auto image_topic_name = std::string(get_name()) + "/image_raw";
   rclcpp::PublisherOptions pub_options;
-  pub_options.qos_overriding_options = rclcpp::QosOverridingOptions::with_default_policies();
+  pub_options.qos_overriding_options = rclcpp::QosOverridingOptions(
+    {rclcpp::QosPolicyKind::History, rclcpp::QosPolicyKind::Depth,
+     rclcpp::QosPolicyKind::Reliability, rclcpp::QosPolicyKind::Durability});
   image_pub_ = image_transport::create_camera_publisher(this,
     image_topic_name, rmw_qos_profile_default, pub_options);
 
