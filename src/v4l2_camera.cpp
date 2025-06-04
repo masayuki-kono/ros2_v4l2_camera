@@ -37,7 +37,7 @@ static constexpr double TARGET_BRIGHTNESS = 128.0;
 // Coefficient for brightness adjustment
 static constexpr double BRIGHTNESS_ADJUSTMENT_COEFFICIENT = 0.5;
 // Maximum exposure time adjustment[0.1msec]
-static constexpr int MAX_EXPOSURE_ADJUSTMENT = 40;
+static constexpr int MAX_EXPOSURE_ADJUSTMENT = 20;
 // Threshold for exposure time change[0.1msec]
 static constexpr int EXPOSURE_TIME_CHANGE_THRESHOLD = 10;
 // Minimum exposure time[0.1msec]
