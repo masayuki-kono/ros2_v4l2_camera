@@ -67,8 +67,6 @@ private:
     sensor_msgs::msg::Image const & img,
     sensor_msgs::msg::CameraInfo const & ci);
 
-  void startReconnectTimer();
-  void startStreamingTimer();
   void streamingTimerCallback();
   int calculateExposureTime(int prev_exposure_time, const cv::Mat& image);
 };

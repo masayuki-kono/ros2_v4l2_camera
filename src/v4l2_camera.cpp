@@ -75,17 +75,52 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   image_pub_ = image_transport::create_camera_publisher(this,
     image_topic_name, rmw_qos_profile_default, pub_options);
 
-  startReconnectTimer();
+  reconnect_timer_ = create_wall_timer(
+    std::chrono::milliseconds(static_cast<int>(parameters_.getReconnectInterval() * 1000)),
+    [this]() {
+      bool connected = false;
+      do {
+        if (!camera_->open()) {
+          break;
+        }
+        if (!device_parameters_declared_) {
+          parameters_.declareDeviceParameters(*camera_);
+          device_parameters_declared_ = true;
+          parameters_.setParameterChangedCallback(
+            [this](rclcpp::Parameter parameter) {
+              handleParameter(parameter);
+            });
+        }
+        applyParameters();
+        last_exposure_time_absolute_ = parameters_.getParameter(exposure_time_absolute_param_name).as_int();
+        if (!camera_->start()) {
+          break;
+        }
+        RCLCPP_INFO(get_logger(), "Connected to camera, start streaming");
+        reconnect_timer_->cancel();
+        streaming_timer_->reset();
+        connected = true;
+      } while(false);
+      if (!connected) {
+        camera_->close();
+      }
+    });
+  reconnect_timer_->cancel();
+
+  streaming_timer_ = create_wall_timer(
+    std::chrono::milliseconds(static_cast<int>(1000.0 / parameters_.getFps())),
+    std::bind(&V4L2Camera::streamingTimerCallback, this));
+  streaming_timer_->cancel();
+
+  // start connecting to camera
+  reconnect_timer_->reset();
 }
 
 V4L2Camera::~V4L2Camera()
 {
-  if (reconnect_timer_) {
-    reconnect_timer_->reset();
-  }
-  if (streaming_timer_) {
-    streaming_timer_->reset();
-  }
+  reconnect_timer_->cancel();
+  streaming_timer_->cancel();
+
   if (camera_) {
     camera_->stop();
     camera_->close();
@@ -251,47 +286,6 @@ bool V4L2Camera::checkCameraInfo(
   return ci.width == img.width && ci.height == img.height;
 }
 
-void V4L2Camera::startReconnectTimer()
-{
-  reconnect_timer_ = create_wall_timer(
-    std::chrono::milliseconds(static_cast<int>(parameters_.getReconnectInterval() * 1000)),
-    [this]() {
-      bool connected = false;
-      do {
-        if (!camera_->open()) {
-          break;
-        }
-        if (!device_parameters_declared_) {
-          parameters_.declareDeviceParameters(*camera_);
-          device_parameters_declared_ = true;
-          parameters_.setParameterChangedCallback(
-            [this](rclcpp::Parameter parameter) {
-              handleParameter(parameter);
-            });
-        }
-        applyParameters();
-        last_exposure_time_absolute_ = parameters_.getParameter(exposure_time_absolute_param_name).as_int();
-        if (!camera_->start()) {
-          break;
-        }
-        RCLCPP_INFO(get_logger(), "Connected to camera, start streaming");
-        reconnect_timer_.reset();
-        startStreamingTimer();
-        connected = true;
-      } while(false);
-      if (!connected) {
-        camera_->close();
-      }
-    });
-}
-
-void V4L2Camera::startStreamingTimer()
-{
-  streaming_timer_ = create_wall_timer(
-    std::chrono::milliseconds(static_cast<int>(1000.0 / parameters_.getFps())),
-    std::bind(&V4L2Camera::streamingTimerCallback, this));
-}
-
 void V4L2Camera::streamingTimerCallback()
 {
   auto previous_subscribers_count = subscribers_count_;
@@ -313,8 +307,8 @@ void V4L2Camera::streamingTimerCallback()
     RCLCPP_ERROR(get_logger(), "Failed to capture image, reconnecting...");
     camera_->stop();
     camera_->close();
-    streaming_timer_.reset();
-    startReconnectTimer();
+    streaming_timer_->cancel();
+    reconnect_timer_->reset();
     return;
   }
 
