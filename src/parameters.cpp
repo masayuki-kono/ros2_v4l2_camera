@@ -42,6 +42,7 @@ void Parameters::declareStaticParameters()
   declareParameter("capture_timeout", 1.0, "Capture timeout", true);
   declareParameter("rotate_flag", -1, "Rotate flag", true);
   declareParameter("flip_code", -2, "Flip code", true);
+  declareParameter("dynamic_exposure_enabled", false, "Dynamic exposure enabled", true);
 }
 
 void Parameters::declareOutputParameters()

@@ -25,6 +25,7 @@
 #include <image_transport/image_transport.hpp>
 #include <rcl_interfaces/msg/parameter.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <opencv2/opencv.hpp>
 
 #include "v4l2_camera/visibility_control.h"
 #include "v4l2_camera/parameters.hpp"
@@ -45,12 +46,14 @@ private:
   rclcpp::TimerBase::SharedPtr reconnect_timer_;
   rclcpp::TimerBase::SharedPtr streaming_timer_;
   Parameters parameters_;
+  bool device_parameters_declared_;
 
   std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_;
 
   std::size_t subscribers_count_;
   std::string camera_frame_id_;
   std::string output_encoding_;
+  int last_exposure_time_absolute_;
 
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_;
 
@@ -67,6 +70,7 @@ private:
   void startReconnectTimer();
   void startStreamingTimer();
   void streamingTimerCallback();
+  int calculateExposureTime(int prev_exposure_time, const cv::Mat& image);
 };
 
 }  // namespace v4l2_camera

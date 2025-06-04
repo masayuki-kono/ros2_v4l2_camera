@@ -28,6 +28,23 @@
 
 using namespace std::chrono_literals;
 
+// Constants for dynamic exposure control
+static std::string exposure_time_absolute_param_name = "exposure_time_absolute";
+// Ratio of ROI size to image size (1/4)
+static constexpr double ROI_SIZE_RATIO = 0.25;
+// Target brightness value (0-255)
+static constexpr double TARGET_BRIGHTNESS = 128.0;
+// Coefficient for brightness adjustment
+static constexpr double BRIGHTNESS_ADJUSTMENT_COEFFICIENT = 0.5;
+// Maximum exposure time adjustment[0.1msec]
+static constexpr int MAX_EXPOSURE_ADJUSTMENT = 40;
+// Threshold for exposure time change[0.1msec]
+static constexpr int EXPOSURE_TIME_CHANGE_THRESHOLD = 10;
+// Minimum exposure time[0.1msec]
+static constexpr int MIN_EXPOSURE_TIME = 10;
+// Maximum exposure time[0.1msec]
+static constexpr int MAX_EXPOSURE_TIME = 1000;
+
 namespace v4l2_camera
 {
 
@@ -35,7 +52,9 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 : rclcpp::Node{"v4l2_camera", options},
   parameters_{get_node_parameters_interface(), get_node_topics_interface(),
   get_node_logging_interface()},
-  subscribers_count_{0}
+  device_parameters_declared_{false},
+  subscribers_count_{0},
+  last_exposure_time_absolute_{0}
 {
   parameters_.declareStaticParameters();
   parameters_.declareOutputParameters();
@@ -46,12 +65,6 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
     parameters_.getValue<double>("capture_timeout"));
 
   camera_info_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_->getCameraName());
-
-  parameters_.declareDeviceParameters(*camera_);
-  parameters_.setParameterChangedCallback(
-    [this](rclcpp::Parameter parameter) {
-      handleParameter(parameter);
-    });
 
   // Allow overriding QoS settings (history, depth, reliability)
   auto image_topic_name = std::string(get_name()) + "/image_raw";
@@ -246,7 +259,16 @@ void V4L2Camera::startReconnectTimer()
         if (!camera_->open()) {
           break;
         }
+        if (!device_parameters_declared_) {
+          parameters_.declareDeviceParameters(*camera_);
+          device_parameters_declared_ = true;
+          parameters_.setParameterChangedCallback(
+            [this](rclcpp::Parameter parameter) {
+              handleParameter(parameter);
+            });
+        }
         applyParameters();
+        last_exposure_time_absolute_ = parameters_.getParameter(exposure_time_absolute_param_name).as_int();
         if (!camera_->start()) {
           break;
         }
@@ -329,6 +351,44 @@ void V4L2Camera::streamingTimerCallback()
   ci->header.stamp = stamp;
 
   image_pub_.publish(std::move(img), std::move(ci));
+
+  if (parameters_.getDynamicExposureEnabled()) {
+    auto new_exposure_time = calculateExposureTime(last_exposure_time_absolute_, cvImg->image);
+    if (std::abs(new_exposure_time - last_exposure_time_absolute_) > EXPOSURE_TIME_CHANGE_THRESHOLD) {
+      handleParameter(rclcpp::Parameter(exposure_time_absolute_param_name, new_exposure_time));
+      last_exposure_time_absolute_ = new_exposure_time;
+    }
+  }
+}
+
+int V4L2Camera::calculateExposureTime(int prev_exposure_time, const cv::Mat& image) {
+  // Define ROI (Region of Interest) in the center of the image
+  int roi_width = static_cast<int>(image.cols * ROI_SIZE_RATIO);
+  int roi_height = static_cast<int>(image.rows * ROI_SIZE_RATIO);
+  int roi_x = (image.cols - roi_width) / 2;
+  int roi_y = (image.rows - roi_height) / 2;
+  cv::Rect roi(roi_x, roi_y, roi_width, roi_height);
+  
+  // Calculate average brightness in the ROI
+  cv::Mat roi_image = image(roi);
+  cv::Scalar mean_brightness = cv::mean(roi_image);
+  double brightness = mean_brightness[0];  // Use only [0] for grayscale image
+  
+  // Return previous exposure time if the image is completely dark (all pixels are 0)
+  // This can happen occasionally due to camera hardware issues
+  if (brightness < 1.0) {
+    return prev_exposure_time;
+  }
+  
+  // Calculate exposure time adjustment based on brightness difference
+  double brightness_diff = TARGET_BRIGHTNESS - brightness;
+  
+  // Calculate exposure time adjustment (proportional to brightness difference)
+  // Increase exposure time when brightness is low, decrease when high
+  auto exposure_adjustment = static_cast<int>(brightness_diff * BRIGHTNESS_ADJUSTMENT_COEFFICIENT);
+  exposure_adjustment = std::clamp(exposure_adjustment, -MAX_EXPOSURE_ADJUSTMENT, MAX_EXPOSURE_ADJUSTMENT);
+  auto new_exposure = prev_exposure_time + exposure_adjustment;
+  return std::clamp(new_exposure, MIN_EXPOSURE_TIME, MAX_EXPOSURE_TIME);
 }
 
 }  // namespace v4l2_camera
