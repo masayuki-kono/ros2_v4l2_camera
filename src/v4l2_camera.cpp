@@ -41,7 +41,7 @@ static constexpr int MAX_EXPOSURE_ADJUSTMENT = 20;
 // Threshold for exposure time change[0.1msec]
 static constexpr int EXPOSURE_TIME_CHANGE_THRESHOLD = 10;
 // Minimum exposure time[0.1msec]
-static constexpr int MIN_EXPOSURE_TIME = 10;
+static constexpr int MIN_EXPOSURE_TIME = 1;
 // Maximum exposure time[0.1msec]
 static constexpr int MAX_EXPOSURE_TIME = 1000;
 
