@@ -30,18 +30,18 @@ using namespace std::chrono_literals;
 
 // Constants for dynamic exposure control
 static std::string exposure_time_absolute_param_name = "exposure_time_absolute";
-// Ratio of ROI size to image size (1/4)
-static constexpr double ROI_SIZE_RATIO = 0.25;
+// Ratio of ROI size to image size (1/2)
+static constexpr double ROI_SIZE_RATIO = 0.5;
 // Target brightness value (0-255)
 static constexpr double TARGET_BRIGHTNESS = 128.0;
 // Coefficient for brightness adjustment
-static constexpr double BRIGHTNESS_ADJUSTMENT_COEFFICIENT = 0.5;
+static constexpr double BRIGHTNESS_ADJUSTMENT_COEFFICIENT = 0.25;
 // Maximum exposure time adjustment[0.1msec]
 static constexpr int MAX_EXPOSURE_ADJUSTMENT = 20;
 // Threshold for exposure time change[0.1msec]
 static constexpr int EXPOSURE_TIME_CHANGE_THRESHOLD = 10;
 // Minimum exposure time[0.1msec]
-static constexpr int MIN_EXPOSURE_TIME = 1;
+static constexpr int MIN_EXPOSURE_TIME = 5;
 // Maximum exposure time[0.1msec]
 static constexpr int MAX_EXPOSURE_TIME = 1000;
 
@@ -350,9 +350,12 @@ void V4L2Camera::streamingTimerCallback()
 
   if (parameters_.getDynamicExposureEnabled()) {
     auto new_exposure_time = calculateExposureTime(last_exposure_time_absolute_, cvImg->image);
-    if (std::abs(new_exposure_time - last_exposure_time_absolute_) > EXPOSURE_TIME_CHANGE_THRESHOLD) {
-      handleParameter(rclcpp::Parameter(exposure_time_absolute_param_name, new_exposure_time));
-      last_exposure_time_absolute_ = new_exposure_time;
+    if (new_exposure_time != last_exposure_time_absolute_) {
+      if (new_exposure_time == MIN_EXPOSURE_TIME ||
+          std::abs(new_exposure_time - last_exposure_time_absolute_) > EXPOSURE_TIME_CHANGE_THRESHOLD) {
+        handleParameter(rclcpp::Parameter(exposure_time_absolute_param_name, new_exposure_time));
+        last_exposure_time_absolute_ = new_exposure_time;
+      }
     }
   }
 }
