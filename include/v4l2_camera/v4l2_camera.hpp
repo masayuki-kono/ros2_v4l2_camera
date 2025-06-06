@@ -44,7 +44,8 @@ private:
   std::shared_ptr<V4l2CameraDevice> camera_;
   image_transport::CameraPublisher image_pub_;
   rclcpp::TimerBase::SharedPtr reconnect_timer_;
-  rclcpp::TimerBase::SharedPtr streaming_timer_;
+  rclcpp::TimerBase::SharedPtr fast_streaming_timer_;
+  rclcpp::TimerBase::SharedPtr slow_streaming_timer_;
   Parameters parameters_;
   bool device_parameters_declared_;
 
