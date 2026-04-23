@@ -64,7 +64,9 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
     parameters_.getVideoDevice(),
     parameters_.getValue<double>("capture_timeout"));
 
-  camera_info_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_->getCameraName());
+  // Use ROS node name (e.g. line_camera / rear_camera) so camera_info YAML camera_name matches.
+  // V4L2 card from getCameraName() may be unset before open() or non-UTF-8 garbage on some devices.
+  camera_info_ = std::make_shared<camera_info_manager::CameraInfoManager>(this, get_name());
 
   // Allow overriding QoS settings (history, depth, reliability)
   auto image_topic_name = std::string(get_name()) + "/image_raw";
@@ -353,6 +355,7 @@ void V4L2Camera::streamingTimerCallback()
     ci->width = img->width;
   }
   ci->header.stamp = stamp;
+  ci->header.frame_id = camera_frame_id_;
 
   image_pub_.publish(std::move(img), std::move(ci));
 
