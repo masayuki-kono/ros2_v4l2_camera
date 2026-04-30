@@ -53,7 +53,6 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   parameters_{get_node_parameters_interface(), get_node_topics_interface(),
   get_node_logging_interface()},
   device_parameters_declared_{false},
-  subscribers_count_{0},
   last_exposure_time_absolute_{0}
 {
   parameters_.declareStaticParameters();
@@ -100,7 +99,7 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
         }
         RCLCPP_INFO(get_logger(), "Connected to camera, start streaming");
         reconnect_timer_->cancel();
-        fast_streaming_timer_->reset();
+        streaming_timer_->reset();
         connected = true;
       } while(false);
       if (!connected) {
@@ -110,12 +109,8 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
   reconnect_timer_->cancel();
 
   auto period = std::chrono::milliseconds(static_cast<int>(1000.0 / parameters_.getFps()));
-  fast_streaming_timer_ = create_wall_timer(period, std::bind(&V4L2Camera::streamingTimerCallback, this));
-  fast_streaming_timer_->cancel();
-
-  // Streaming timer with a slow period when no subscriptions are present
-  slow_streaming_timer_ = create_wall_timer(period * 10, std::bind(&V4L2Camera::streamingTimerCallback, this));
-  slow_streaming_timer_->cancel();
+  streaming_timer_ = create_wall_timer(period, std::bind(&V4L2Camera::streamingTimerCallback, this));
+  streaming_timer_->cancel();
 
   // start connecting to camera
   reconnect_timer_->reset();
@@ -124,8 +119,7 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
 V4L2Camera::~V4L2Camera()
 {
   reconnect_timer_->cancel();
-  fast_streaming_timer_->cancel();
-  slow_streaming_timer_->cancel();
+  streaming_timer_->cancel();
 
   if (camera_) {
     camera_->stop();
@@ -294,30 +288,12 @@ bool V4L2Camera::checkCameraInfo(
 
 void V4L2Camera::streamingTimerCallback()
 {
-  auto previous_subscribers_count = subscribers_count_;
-  subscribers_count_ = image_pub_.getNumSubscribers();
-  if (subscribers_count_ == 0) {
-    if (previous_subscribers_count > 0) {
-      RCLCPP_INFO(get_logger(), "No subscriber, slowing down to capture");
-      fast_streaming_timer_->cancel();
-      slow_streaming_timer_->reset();
-    }
-  }
-  else {
-    if (previous_subscribers_count == 0) {
-      RCLCPP_INFO(get_logger(), "Detect subscriber, resuming to capture");
-      slow_streaming_timer_->cancel();
-      fast_streaming_timer_->reset();
-    }
-  }
-
   auto img = camera_->capture();
   if (!img) {
     RCLCPP_ERROR(get_logger(), "Failed to capture image, reconnecting...");
     camera_->stop();
     camera_->close();
-    fast_streaming_timer_->cancel();
-    slow_streaming_timer_->cancel();
+    streaming_timer_->cancel();
     reconnect_timer_->reset();
     return;
   }

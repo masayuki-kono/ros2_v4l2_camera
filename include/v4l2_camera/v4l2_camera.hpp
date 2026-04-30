@@ -44,14 +44,12 @@ private:
   std::shared_ptr<V4l2CameraDevice> camera_;
   image_transport::CameraPublisher image_pub_;
   rclcpp::TimerBase::SharedPtr reconnect_timer_;
-  rclcpp::TimerBase::SharedPtr fast_streaming_timer_;
-  rclcpp::TimerBase::SharedPtr slow_streaming_timer_;
+  rclcpp::TimerBase::SharedPtr streaming_timer_;
   Parameters parameters_;
   bool device_parameters_declared_;
 
   std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_;
 
-  std::size_t subscribers_count_;
   std::string camera_frame_id_;
   std::string output_encoding_;
   int last_exposure_time_absolute_;
