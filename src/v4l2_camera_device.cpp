@@ -19,6 +19,7 @@
 #include <sys/mman.h>
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -238,19 +239,63 @@ Image::UniquePtr V4l2CameraDevice::capture()
     return nullptr;
   }
 
+  auto requeue_buffer = [this, &buf]() {
+      if (-1 == ioctl(fd_, VIDIOC_QBUF, &buf)) {
+        RCLCPP_ERROR(
+          rclcpp::get_logger("v4l2_camera"),
+          "Error re-queueing buffer: %s (%s)", strerror(errno),
+          std::to_string(errno).c_str());
+        return false;
+      }
+      return true;
+    };
+
   // Create image object
   auto img = std::make_unique<Image>();
 
-  // Copy over buffer data
   auto const & buffer = buffers_[buf.index];
-  img->data.assign(buffer.start, buffer.start + cur_data_format_.imageByteSize);
+  const std::size_t bytes_used = static_cast<std::size_t>(buf.bytesused);
 
-  // Requeue buffer to be reused for new captures
-  if (-1 == ioctl(fd_, VIDIOC_QBUF, &buf)) {
+  if (cur_data_format_.height == 0 || cur_data_format_.bytesPerLine == 0) {
     RCLCPP_ERROR(
       rclcpp::get_logger("v4l2_camera"),
-      "Error re-queueing buffer: %s (%s)", strerror(errno),
-      std::to_string(errno).c_str());
+      "Invalid image geometry from driver: height=%u bytes_per_line=%u",
+      cur_data_format_.height, cur_data_format_.bytesPerLine);
+    requeue_buffer();
+    return nullptr;
+  }
+
+  if (
+    cur_data_format_.bytesPerLine >
+    std::numeric_limits<std::size_t>::max() / cur_data_format_.height)
+  {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("v4l2_camera"),
+      "Image size overflow detected: height=%u bytes_per_line=%u",
+      cur_data_format_.height, cur_data_format_.bytesPerLine);
+    requeue_buffer();
+    return nullptr;
+  }
+
+  const std::size_t expected_size = static_cast<std::size_t>(cur_data_format_.height) *
+    static_cast<std::size_t>(cur_data_format_.bytesPerLine);
+
+  if (bytes_used < expected_size || bytes_used > buffer.length) {
+    RCLCPP_ERROR(
+      rclcpp::get_logger("v4l2_camera"),
+      "Discarding invalid frame: width=%u height=%u step=%u expected_size=%zu bytesused=%zu "
+      "buffer_length=%zu",
+      cur_data_format_.width, cur_data_format_.height, cur_data_format_.bytesPerLine,
+      expected_size, bytes_used, buffer.length);
+    requeue_buffer();
+    return nullptr;
+  }
+
+  // Copy only the expected frame bytes, not full bytesused payload.
+  img->data.assign(buffer.start, buffer.start + expected_size);
+
+  // Requeue buffer to be reused for new captures
+  if (!requeue_buffer()) {
     return nullptr;
   }
 
