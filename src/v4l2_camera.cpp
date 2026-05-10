@@ -100,6 +100,7 @@ V4L2Camera::V4L2Camera(rclcpp::NodeOptions const & options)
         RCLCPP_INFO(get_logger(), "Connected to camera, start streaming");
         reconnect_timer_->cancel();
         streaming_timer_->reset();
+        consecutive_capture_failures_ = 0;
         connected = true;
       } while(false);
       if (!connected) {
@@ -290,13 +291,27 @@ void V4L2Camera::streamingTimerCallback()
 {
   auto img = camera_->capture();
   if (!img) {
-    RCLCPP_ERROR(get_logger(), "Failed to capture image, reconnecting...");
-    camera_->stop();
-    camera_->close();
-    streaming_timer_->cancel();
-    reconnect_timer_->reset();
+    ++consecutive_capture_failures_;
+    const auto max_fail = static_cast<uint32_t>(parameters_.getMaxConsecutiveCaptureFailures());
+    if (consecutive_capture_failures_ < max_fail) {
+      RCLCPP_WARN(
+        get_logger(),
+        "Capture failed (%u/%u consecutive), retrying next frame",
+        consecutive_capture_failures_, max_fail);
+    } else {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Failed to capture image after %u consecutive failures, reconnecting...",
+        consecutive_capture_failures_);
+      camera_->stop();
+      camera_->close();
+      streaming_timer_->cancel();
+      reconnect_timer_->reset();
+    }
     return;
   }
+
+  consecutive_capture_failures_ = 0;
 
   auto stamp = now();
   img->header.stamp = stamp;
