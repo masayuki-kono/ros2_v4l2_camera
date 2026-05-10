@@ -15,6 +15,8 @@
 #ifndef V4L2_CAMERA__PARAMETERS_HPP_
 #define V4L2_CAMERA__PARAMETERS_HPP_
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -79,6 +81,11 @@ public:
   double getFps() const {return getValue<double>("fps");}
   double getReconnectInterval() const {return getValue<double>("reconnect_interval");}
   double getCaptureTimeout() const {return getValue<double>("capture_timeout");}
+  int64_t getMaxConsecutiveCaptureFailures() const
+  {
+    auto v = getValue<int64_t>("max_consecutive_capture_failures");
+    return std::max<int64_t>(1, v);
+  }
   int getRotateFlag() const {return getValue<int>("rotate_flag");}
   int getFlipCode() const {return getValue<int>("flip_code");}
   bool getDynamicExposureEnabled() const {return getValue<bool>("dynamic_exposure_enabled");}

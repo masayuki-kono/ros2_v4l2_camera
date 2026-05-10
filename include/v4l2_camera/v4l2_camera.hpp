@@ -17,6 +17,7 @@
 
 #include "v4l2_camera/v4l2_camera_device.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -53,6 +54,7 @@ private:
   std::string camera_frame_id_;
   std::string output_encoding_;
   int last_exposure_time_absolute_;
+  uint32_t consecutive_capture_failures_{0};
 
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_;
 

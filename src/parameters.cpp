@@ -40,6 +40,9 @@ void Parameters::declareStaticParameters()
   declareParameter("fps", 30.0, "FPS", true);
   declareParameter("reconnect_interval", 1.0, "Connection lost retry interval", true);
   declareParameter("capture_timeout", 1.0, "Capture timeout", true);
+  declareParameter<int64_t>(
+    "max_consecutive_capture_failures", 10,
+    "Consecutive failed captures before stop, close, and reconnect", true);
   declareParameter("rotate_flag", -1, "Rotate flag", true);
   declareParameter("flip_code", -2, "Flip code", true);
   declareParameter("dynamic_exposure_enabled", false, "Dynamic exposure enabled", true);
