@@ -15,6 +15,8 @@
 #ifndef V4L2_CAMERA__V4L2_CAMERA_DEVICE_HPP_
 #define V4L2_CAMERA__V4L2_CAMERA_DEVICE_HPP_
 
+#include <cstddef>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
@@ -70,7 +72,40 @@ public:
 
   std::string getCameraName();
 
-  sensor_msgs::msg::Image::UniquePtr capture();
+  /**
+   * @brief Captures one frame.
+   *
+   * Frames of a fixed-size pixel format are returned as they come from the camera. MJPG frames,
+   * whose length changes from frame to frame, are decoded with JpegFrameDecoder.
+   *
+   * @param output_encoding Requested output encoding; selects how an MJPG frame is decoded.
+   * @return The frame, or nullptr when no valid frame was captured (timeout, device error,
+   *   invalid or undecodable frame).
+   */
+  sensor_msgs::msg::Image::UniquePtr capture(std::string const & output_encoding);
+
+  /**
+   * @brief Checks one dequeued frame and converts it to an image.
+   *
+   * A fixed-size frame must hold at least bytesPerLine * height bytes and is copied as it is;
+   * only the first bytesPerLine * height bytes are used. An MJPG frame has no fixed length and
+   * is decoded with JpegFrameDecoder instead. A frame of an unsupported pixel format is returned
+   * with an empty encoding.
+   *
+   * @param data First byte of the frame. Not retained after the call.
+   * @param bytes_used Number of bytes the driver wrote to the buffer.
+   * @param buffer_length Size of the buffer [byte].
+   * @param buffer_flags Flags the driver set on the dequeued buffer (V4L2_BUF_FLAG_*).
+   * @param format Format the frame was captured in.
+   * @param output_encoding Requested output encoding; selects how an MJPG frame is decoded.
+   * @param reject_reason Set to the log message that tells why the frame was discarded when
+   *   nullptr is returned; left unchanged otherwise.
+   * @return The image, or nullptr when the frame is discarded.
+   */
+  static sensor_msgs::msg::Image::UniquePtr convertFrame(
+    const uint8_t * data, std::size_t bytes_used, std::size_t buffer_length,
+    uint32_t buffer_flags, PixelFormat const & format, std::string const & output_encoding,
+    std::string & reject_reason);
 
 private:
   /// Image buffer
@@ -110,6 +145,24 @@ private:
 
   // Set up memory mapping to buffers
   bool initMemoryMapping();
+
+  /**
+   * @brief Checks one dequeued MJPG frame and decodes it.
+   *
+   * @param data First byte of the frame.
+   * @param bytes_used Number of bytes the driver wrote to the buffer.
+   * @param buffer_length Size of the buffer [byte].
+   * @param buffer_flags Flags the driver set on the dequeued buffer (V4L2_BUF_FLAG_*).
+   * @param format Format the frame was captured in.
+   * @param output_encoding Requested output encoding.
+   * @param reject_reason Set to the log message that tells why the frame was discarded when
+   *   nullptr is returned; left unchanged otherwise.
+   * @return The decoded image, or nullptr when the frame is discarded.
+   */
+  static sensor_msgs::msg::Image::UniquePtr decodeMjpgFrame(
+    const uint8_t * data, std::size_t bytes_used, std::size_t buffer_length,
+    uint32_t buffer_flags, PixelFormat const & format, std::string const & output_encoding,
+    std::string & reject_reason);
 };
 
 }  // namespace v4l2_camera

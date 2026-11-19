@@ -26,6 +26,7 @@ find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 
 add_library(v4l2_camera
+  src/jpeg_frame_decoder.cpp
   src/parameters.cpp
   src/v4l2_camera.cpp
   src/v4l2_camera_device.cpp)
@@ -78,8 +79,15 @@ install(TARGETS v4l2_camera_node v4l2_camera_compose_test
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  find_package(ament_cmake_gtest REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_gtest(jpeg_frame_decoder_test test/jpeg_frame_decoder_test.cpp)
+  target_link_libraries(jpeg_frame_decoder_test v4l2_camera)
+
+  ament_add_gtest(v4l2_camera_device_test test/v4l2_camera_device_test.cpp)
+  target_link_libraries(v4l2_camera_device_test v4l2_camera)
 endif()
 
 ament_export_include_directories(

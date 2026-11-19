@@ -22,6 +22,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,6 +31,7 @@
 #include <sensor_msgs/image_encodings.hpp>
 
 #include "v4l2_camera/fourcc.hpp"
+#include "v4l2_camera/jpeg_frame_decoder.hpp"
 
 using v4l2_camera::V4l2CameraDevice;
 using sensor_msgs::msg::Image;
@@ -204,7 +206,7 @@ std::string V4l2CameraDevice::getCameraName()
   return name;
 }
 
-Image::UniquePtr V4l2CameraDevice::capture()
+Image::UniquePtr V4l2CameraDevice::capture(std::string const & output_encoding)
 {
   auto buf = v4l2_buffer{};
 
@@ -250,71 +252,85 @@ Image::UniquePtr V4l2CameraDevice::capture()
       return true;
     };
 
-  // Create image object
-  auto img = std::make_unique<Image>();
-
   auto const & buffer = buffers_[buf.index];
   const std::size_t bytes_used = static_cast<std::size_t>(buf.bytesused);
 
-  if (cur_data_format_.height == 0 || cur_data_format_.bytesPerLine == 0) {
-    RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
-      "Invalid image geometry from driver: height=%u bytes_per_line=%u",
-      cur_data_format_.height, cur_data_format_.bytesPerLine);
+  std::string reject_reason;
+  auto img = convertFrame(
+    buffer.start, bytes_used, buffer.length, buf.flags, cur_data_format_, output_encoding,
+    reject_reason);
+
+  if (!img) {
+    RCLCPP_ERROR(rclcpp::get_logger("v4l2_camera"), "%s", reject_reason.c_str());
     requeue_buffer();
     return nullptr;
   }
-
-  if (
-    cur_data_format_.bytesPerLine >
-    std::numeric_limits<std::size_t>::max() / cur_data_format_.height)
-  {
-    RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
-      "Image size overflow detected: height=%u bytes_per_line=%u",
-      cur_data_format_.height, cur_data_format_.bytesPerLine);
-    requeue_buffer();
-    return nullptr;
-  }
-
-  const std::size_t expected_size = static_cast<std::size_t>(cur_data_format_.height) *
-    static_cast<std::size_t>(cur_data_format_.bytesPerLine);
-
-  if (bytes_used < expected_size || bytes_used > buffer.length) {
-    RCLCPP_ERROR(
-      rclcpp::get_logger("v4l2_camera"),
-      "Discarding invalid frame: width=%u height=%u step=%u expected_size=%zu bytesused=%zu "
-      "buffer_length=%zu",
-      cur_data_format_.width, cur_data_format_.height, cur_data_format_.bytesPerLine,
-      expected_size, bytes_used, buffer.length);
-    requeue_buffer();
-    return nullptr;
-  }
-
-  // Copy only the expected frame bytes, not full bytesused payload.
-  img->data.assign(buffer.start, buffer.start + expected_size);
 
   // Requeue buffer to be reused for new captures
   if (!requeue_buffer()) {
     return nullptr;
   }
 
+  return img;
+}
+
+Image::UniquePtr V4l2CameraDevice::convertFrame(
+  const uint8_t * data, std::size_t bytes_used, std::size_t buffer_length,
+  uint32_t buffer_flags, PixelFormat const & format, std::string const & output_encoding,
+  std::string & reject_reason)
+{
+  // A compressed frame has no fixed length (and the driver reports no bytes per line), so it
+  // cannot go through the fixed-size checks below.
+  if (format.pixelFormat == V4L2_PIX_FMT_MJPEG) {
+    return decodeMjpgFrame(
+      data, bytes_used, buffer_length, buffer_flags, format, output_encoding, reject_reason);
+  }
+
+  if (format.height == 0 || format.bytesPerLine == 0) {
+    reject_reason = "Invalid image geometry from driver: height=" + std::to_string(format.height) +
+      " bytes_per_line=" + std::to_string(format.bytesPerLine);
+    return nullptr;
+  }
+
+  if (format.bytesPerLine > std::numeric_limits<std::size_t>::max() / format.height) {
+    reject_reason = "Image size overflow detected: height=" + std::to_string(format.height) +
+      " bytes_per_line=" + std::to_string(format.bytesPerLine);
+    return nullptr;
+  }
+
+  const std::size_t expected_size = static_cast<std::size_t>(format.height) *
+    static_cast<std::size_t>(format.bytesPerLine);
+
+  if (bytes_used < expected_size || bytes_used > buffer_length) {
+    reject_reason = "Discarding invalid frame: width=" + std::to_string(format.width) +
+      " height=" + std::to_string(format.height) + " step=" + std::to_string(format.bytesPerLine) +
+      " expected_size=" + std::to_string(expected_size) +
+      " bytesused=" + std::to_string(bytes_used) +
+      " buffer_length=" + std::to_string(buffer_length);
+    return nullptr;
+  }
+
+  auto img = std::make_unique<Image>();
+
+  // Copy only the expected frame bytes, not full bytesused payload.
+  img->data.assign(data, data + expected_size);
+
   // Fill in remaining image information
-  img->width = cur_data_format_.width;
-  img->height = cur_data_format_.height;
-  img->step = cur_data_format_.bytesPerLine;
-  if (cur_data_format_.pixelFormat == V4L2_PIX_FMT_YUYV) {
+  img->width = format.width;
+  img->height = format.height;
+  img->step = format.bytesPerLine;
+  if (format.pixelFormat == V4L2_PIX_FMT_YUYV) {
     img->encoding = sensor_msgs::image_encodings::YUV422_YUY2;
-  } else if (cur_data_format_.pixelFormat == V4L2_PIX_FMT_UYVY) {
+  } else if (format.pixelFormat == V4L2_PIX_FMT_UYVY) {
     img->encoding = sensor_msgs::image_encodings::YUV422;
-  } else if (cur_data_format_.pixelFormat == V4L2_PIX_FMT_GREY) {
+  } else if (format.pixelFormat == V4L2_PIX_FMT_GREY) {
     img->encoding = sensor_msgs::image_encodings::MONO8;
   } else {
     RCLCPP_WARN(
       rclcpp::get_logger("v4l2_camera"),
       "Current pixel format is not supported yet: %s %d",
-      FourCC::toString(cur_data_format_.pixelFormat).c_str(),
-      cur_data_format_.pixelFormat);
+      FourCC::toString(format.pixelFormat).c_str(),
+      format.pixelFormat);
   }
 
   return img;
@@ -583,4 +599,32 @@ bool V4l2CameraDevice::initMemoryMapping()
   }
 
   return true;
+}
+
+Image::UniquePtr V4l2CameraDevice::decodeMjpgFrame(
+  const uint8_t * data, std::size_t bytes_used, std::size_t buffer_length,
+  uint32_t buffer_flags, PixelFormat const & format, std::string const & output_encoding,
+  std::string & reject_reason)
+{
+  std::string cause;
+  Image::UniquePtr decoded;
+  if (buffer_flags & V4L2_BUF_FLAG_ERROR) {
+    cause = "driver flagged the frame as erroneous";
+  } else if (bytes_used == 0) {
+    cause = "frame is empty";
+  } else if (bytes_used > buffer_length) {
+    cause = "bytesused exceeds the buffer length";
+  } else {
+    decoded = JpegFrameDecoder::decode(
+      data, bytes_used, format.width, format.height, output_encoding, cause);
+  }
+
+  if (!decoded) {
+    std::ostringstream message;
+    message << "Discarding undecodable MJPG frame: " << cause << ": width=" << format.width <<
+      " height=" << format.height << " bytesused=" << bytes_used <<
+      " buffer_length=" << buffer_length << " flags=0x" << std::hex << buffer_flags;
+    reject_reason = message.str();
+  }
+  return decoded;
 }
