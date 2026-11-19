@@ -289,7 +289,7 @@ bool V4L2Camera::checkCameraInfo(
 
 void V4L2Camera::streamingTimerCallback()
 {
-  auto img = camera_->capture();
+  auto img = camera_->capture(output_encoding_);
   if (!img) {
     ++consecutive_capture_failures_;
     const auto max_fail = static_cast<uint32_t>(parameters_.getMaxConsecutiveCaptureFailures());
